@@ -11,6 +11,7 @@ This guide is for people who want to build and inspect the preview themselves.
 - For local speech: a WhisperKit/CoreML model
 - For local rewriting: Ollama running on `http://localhost:11434`
 - Optional for remote OpenAI workflows: an OpenAI API key
+- Optional for Azure Foundry Claude rewriting: Endpoint, Deployment/Model name, API version, and API key
 
 Install XcodeGen manually if needed:
 
@@ -49,7 +50,9 @@ ollama pull llama3.1
 
 Ollama listens on `http://localhost:11434` by default. You can test the connection from the app settings.
 
-## 4. Optional OpenAI Provider
+For a new local-first install, no API key is required. The app is ready once a WhisperKit model is installed and Ollama can answer with the selected model.
+
+## 4. Optional Remote Providers
 
 Open the app settings and paste your own OpenAI API key only if you want OpenAI transcription or OpenAI rewriting. Then select OpenAI as speech provider, text provider, or both.
 
@@ -63,7 +66,9 @@ You are responsible for API access, billing, and data handling in your own OpenA
 
 Never commit your API key into this repository, issues, logs, or screenshots.
 
-You can skip this step for fully local WhisperKit + Ollama workflows.
+For Azure Foundry Claude, select Azure Foundry Claude as text provider and configure Endpoint, Deployment/Model name, API version, and API key. The API key is stored in the macOS Keychain; the endpoint and model settings are stored as non-secret app settings.
+
+You can skip remote providers for fully local WhisperKit + Ollama workflows.
 
 ## 5. Local Speech Model
 
@@ -89,6 +94,7 @@ Blitztext does not need Full Disk Access. Auto-paste uses the Accessibility perm
 
 - If `xcodebuild` reports that the active developer directory is only Command Line Tools, run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 - If the build cannot find XcodeGen, install it explicitly with `brew install xcodegen`.
+- To run unit tests locally on Apple Silicon, use `xcodebuild ... -destination 'platform=macOS,arch=arm64' test CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES`.
 - If local transcription is unavailable, check whether a WhisperKit model is installed in the expected folder.
 - If local rewriting fails, check whether Ollama is running and the selected model is installed.
 - If transcription works but paste does not, this is not an OpenAI billing issue. Check **Privacy & Security -> Accessibility**, restart Blitztext after changing the permission, and make sure the cursor is focused in a text field before starting the workflow.
@@ -96,3 +102,4 @@ Blitztext does not need Full Disk Access. Auto-paste uses the Accessibility perm
 - If the target app blocks synthetic paste or the target app was not detected, the result still stays on the clipboard so you can press Cmd+V manually.
 - If audio is missing, check Microphone permission and macOS input settings.
 - If you see OpenAI errors while OpenAI is selected, verify the API key, model access, and account billing.
+- If you see Azure Foundry errors while Azure Foundry Claude is selected, verify the endpoint, deployment/model name, API version, API key, and account access.

@@ -6,7 +6,7 @@ It is intentionally small and unfinished. The goal is to make a real workflow vi
 
 This is a learning and experimentation project, not a polished product.
 
-> Preview status: local-first, optional bring-your-own OpenAI API key, no hosted backend, no warranty, no support guarantee.
+> Preview status: local-first, optional bring-your-own OpenAI or Azure Foundry API keys, no hosted backend, no warranty, no support guarantee.
 
 ## What It Does
 
@@ -18,10 +18,11 @@ This is a learning and experimentation project, not a polished product.
 ## Important Preview Notes
 
 - macOS only.
-- Local-first workflows use WhisperKit/CoreML for speech and Ollama for text generation.
+- Local-first workflows use WhisperKit/CoreML for speech and Ollama on `localhost` for text generation.
 - Bring your own OpenAI API key only if you choose OpenAI as speech or text provider.
+- Bring your own Azure Foundry API key only if you choose Azure Foundry Claude as text provider.
 - No hosted Blitztext backend is included or provided.
-- In OpenAI mode, audio and/or text are sent directly from the app to the OpenAI API.
+- In remote-provider mode, selected audio and/or text are sent directly from the app to the configured provider API.
 - Local transcription via WhisperKit/CoreML requires a compatible model installed locally.
 - `./build.sh` creates a locally ad-hoc-signed development app. No notarized release binary is provided.
 - Not production ready.
@@ -49,10 +50,11 @@ The intent is not to ship a one-click finished app. The intent is to make a real
 - macOS 14 or newer
 - Xcode 16 or newer (Swift 5.10), with Command Line Tools installed and selected for `xcodebuild`
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the Xcode project
-- For local text generation: Ollama running on `http://localhost:11434` with a model such as `llama3.1`.
+- For local text generation: Ollama running on `http://localhost:11434` with a model such as `llama3.1`, `qwen2.5`, or `mistral`.
 - Optional for OpenAI transcription and rewriting: an OpenAI API key with access to:
   - `whisper-1` for transcription
   - `gpt-4o-mini` and optionally `gpt-4o` for rewriting
+- Optional for Azure Foundry Claude rewriting: Endpoint, Deployment/Model name, API version, and API key.
 - For local transcription: a WhisperKit CoreML model in:
   `~/Library/Application Support/Blitztext/models/whisperkit/`
 
@@ -86,6 +88,14 @@ On first launch, install a WhisperKit CoreML model for local transcription and r
 
 For fully local workflows, install a WhisperKit CoreML model and configure Ollama in the app settings.
 
+Minimal Ollama setup:
+
+```bash
+brew install ollama
+ollama serve
+ollama pull llama3.1
+```
+
 For a slower, more explicit walkthrough, see [docs/setup.md](docs/setup.md).
 
 ## Permissions
@@ -108,9 +118,10 @@ Local transcription:  Your Mac -> WhisperKit/CoreML on device
 Local rewriting:      Your Mac -> Ollama on localhost
 OpenAI transcription: Your Mac -> OpenAI Audio Transcriptions API
 OpenAI rewriting:     Your Mac -> OpenAI Chat Completions API
+Azure rewriting:      Your Mac -> Azure Foundry Model Inference API
 ```
 
-The app stores your OpenAI API key in the user's macOS Keychain.
+The app stores OpenAI and Azure Foundry API keys in the user's macOS Keychain. `settings.json` stores provider choices, endpoints, and model names, but not API keys.
 
 Read [docs/privacy.md](docs/privacy.md) before using the preview with sensitive content.
 
@@ -121,6 +132,7 @@ BlitztextMac/
   App/          App lifecycle and paste handling
   Features/     Workflows, menu bar UI, settings
   Services/     Recording, provider calls, hotkeys, local storage
+  Tests/        Provider, prompt, migration, and error mapping checks
   Views/        Shared SwiftUI views
 build.sh        Local build script
 docs/           Setup, privacy, roadmap, preflight, landing page notes
@@ -131,6 +143,21 @@ docs/           Setup, privacy, roadmap, preflight, landing page notes
 Local transcription is available through WhisperKit/CoreML. The app does not bundle a model; choose one in the app and click install. Local text generation uses Ollama when selected as text provider.
 
 See [docs/local-models.md](docs/local-models.md).
+
+## Tests
+
+The project includes focused unit tests for prompt generation, provider configuration, settings migration, and provider-specific error messages.
+
+```bash
+xcodebuild -project BlitztextMac/BlitztextMac.xcodeproj \
+  -scheme BlitztextMac \
+  -configuration Debug \
+  -derivedDataPath /tmp/blitztext-derived \
+  -destination 'platform=macOS,arch=arm64' \
+  test CODE_SIGNING_ALLOWED=NO ONLY_ACTIVE_ARCH=YES
+```
+
+`ONLY_ACTIVE_ARCH=YES` keeps the local test run on arm64, which matches the WhisperKit package build used by this preview.
 
 ## Contributing
 

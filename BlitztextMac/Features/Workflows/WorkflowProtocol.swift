@@ -134,6 +134,7 @@ struct AppSettings: Codable {
     static let defaultOllamaBaseURL = "http://localhost:11434"
     static let defaultOllamaModel = "llama3.1"
     static let defaultOpenAISpeechModel = "whisper-1"
+    static let defaultAzureFoundryAPIVersion = "2024-05-01-preview"
 
     var hotkeyMode: HotkeyMode = .hold
     var hasSeenOnboarding: Bool = false
@@ -146,6 +147,9 @@ struct AppSettings: Codable {
     var ollamaModel: String = Self.defaultOllamaModel
     var openAISpeechModel: String = Self.defaultOpenAISpeechModel
     var openAITextModel: String = ""
+    var azureFoundryEndpoint: String = ""
+    var azureFoundryDeploymentName: String = ""
+    var azureFoundryAPIVersion: String = Self.defaultAzureFoundryAPIVersion
 
     init(
         hotkeyMode: HotkeyMode = .hold,
@@ -158,7 +162,10 @@ struct AppSettings: Codable {
         ollamaBaseURL: String = Self.defaultOllamaBaseURL,
         ollamaModel: String = Self.defaultOllamaModel,
         openAISpeechModel: String = Self.defaultOpenAISpeechModel,
-        openAITextModel: String = ""
+        openAITextModel: String = "",
+        azureFoundryEndpoint: String = "",
+        azureFoundryDeploymentName: String = "",
+        azureFoundryAPIVersion: String = Self.defaultAzureFoundryAPIVersion
     ) {
         self.hotkeyMode = hotkeyMode
         self.hasSeenOnboarding = hasSeenOnboarding
@@ -171,6 +178,9 @@ struct AppSettings: Codable {
         self.ollamaModel = ollamaModel
         self.openAISpeechModel = openAISpeechModel
         self.openAITextModel = openAITextModel
+        self.azureFoundryEndpoint = azureFoundryEndpoint
+        self.azureFoundryDeploymentName = azureFoundryDeploymentName
+        self.azureFoundryAPIVersion = azureFoundryAPIVersion
     }
 
     enum CodingKeys: String, CodingKey {
@@ -185,6 +195,9 @@ struct AppSettings: Codable {
         case ollamaModel
         case openAISpeechModel
         case openAITextModel
+        case azureFoundryEndpoint
+        case azureFoundryDeploymentName
+        case azureFoundryAPIVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -225,6 +238,18 @@ struct AppSettings: Codable {
             String.self,
             forKey: .openAITextModel
         ) ?? ""
+        azureFoundryEndpoint = try container.decodeIfPresent(
+            String.self,
+            forKey: .azureFoundryEndpoint
+        ) ?? ""
+        azureFoundryDeploymentName = try container.decodeIfPresent(
+            String.self,
+            forKey: .azureFoundryDeploymentName
+        ) ?? ""
+        azureFoundryAPIVersion = try container.decodeIfPresent(
+            String.self,
+            forKey: .azureFoundryAPIVersion
+        ) ?? Self.defaultAzureFoundryAPIVersion
     }
 }
 

@@ -131,7 +131,9 @@ final class AppState {
                     ? "Text remote mit OpenAI."
                     : "OpenAI Key fehlt."
             case .azureFoundryClaude:
-                return "Azure Foundry Claude ist noch nicht konfiguriert."
+                return azureFoundryTextProviderIsConfigured
+                    ? "Text remote mit Azure Foundry Claude."
+                    : azureFoundryUnavailableText
             }
         }
     }
@@ -169,7 +171,11 @@ final class AppState {
         case .openAI:
             return .openAI(model: appSettings.openAITextModel)
         case .azureFoundryClaude:
-            return .azureFoundryClaude()
+            return .azureFoundryClaude(
+                endpoint: appSettings.azureFoundryEndpoint,
+                deploymentName: appSettings.azureFoundryDeploymentName,
+                apiVersion: appSettings.azureFoundryAPIVersion
+            )
         }
     }
 
@@ -215,7 +221,7 @@ final class AppState {
         case .openAI:
             return KeychainService.isConfigured
         case .azureFoundryClaude:
-            return false
+            return azureFoundryTextProviderIsConfigured
         }
     }
 
@@ -238,7 +244,9 @@ final class AppState {
         case .openAI:
             return KeychainService.isConfigured ? "Text via OpenAI \(resolvedOpenAITextModel)" : "OpenAI Key fehlt"
         case .azureFoundryClaude:
-            return "Azure Foundry Claude noch nicht konfiguriert"
+            return azureFoundryTextProviderIsConfigured
+                ? "Text via Azure Foundry \(resolvedAzureFoundryDeploymentName)"
+                : azureFoundryUnavailableText
         }
     }
 
@@ -259,6 +267,34 @@ final class AppState {
     var resolvedOpenAITextModel: String {
         let model = appSettings.openAITextModel.trimmingCharacters(in: .whitespacesAndNewlines)
         return model.isEmpty ? "\(RewriteModel.fastEdit.rawValue)/\(RewriteModel.rageMode.rawValue)" : model
+    }
+
+    var resolvedAzureFoundryDeploymentName: String {
+        let deployment = appSettings.azureFoundryDeploymentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return deployment.isEmpty ? "Deployment fehlt" : deployment
+    }
+
+    var azureFoundryTextProviderIsConfigured: Bool {
+        !appSettings.azureFoundryEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !appSettings.azureFoundryDeploymentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !appSettings.azureFoundryAPIVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && hasValue(for: .azureFoundryAPIKey)
+    }
+
+    var azureFoundryUnavailableText: String {
+        if appSettings.azureFoundryEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Azure Foundry Endpoint fehlt."
+        }
+        if appSettings.azureFoundryDeploymentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Azure Foundry Deployment fehlt."
+        }
+        if appSettings.azureFoundryAPIVersion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Azure Foundry API-Version fehlt."
+        }
+        if !hasValue(for: .azureFoundryAPIKey) {
+            return "Azure Foundry API Key fehlt."
+        }
+        return "Azure Foundry ist nicht vollständig konfiguriert."
     }
 
     // MARK: - Workflow Management

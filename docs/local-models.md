@@ -1,6 +1,6 @@
 # Local Models
 
-Blitztext can run transcription locally with WhisperKit/CoreML. The app does not bundle a speech model, but it can download the selected compatible model from Hugging Face into the local cache.
+Blitztext can run transcription locally with WhisperKit/CoreML and rewriting locally through Ollama. The app does not bundle a speech model, but it can download the selected compatible model from Hugging Face into the local cache.
 
 ## Recommended First Model
 
@@ -28,6 +28,18 @@ The app detects installed model folders that contain `AudioEncoder.mlmodelc`, `M
 Open Blitztext, go to **Settings > Anpassen**, choose a local model, and click **Installieren**. If the selected model is missing, Blitztext starts the download and installs it into the local cache.
 
 After the model is installed, the Blitztext transcription workflow can run locally. Rewriting workflows can also run locally when Ollama is selected as text provider and the configured Ollama model is installed.
+
+## Ollama For Local Rewriting
+
+Ollama runs outside the app and is reached on `http://localhost:11434` by default. Install a model, select Ollama as text provider in Blitztext, and use **Verbindung testen** in settings.
+
+```bash
+brew install ollama
+ollama serve
+ollama pull llama3.1
+```
+
+Other useful model names include `qwen2.5` and `mistral`.
 
 ## Optional Manual Install
 

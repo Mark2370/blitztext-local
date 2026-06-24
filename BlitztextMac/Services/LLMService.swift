@@ -2,18 +2,22 @@ import Foundation
 
 enum LLMError: LocalizedError {
     case notConfigured
+    case azureFoundryNotConfigured(String)
     case networkError(String)
     case apiError(String)
     case noContent
     case ollamaUnavailable
     case ollamaModelMissing(String)
     case ollamaRequestFailed(String)
+    case azureFoundryRequestFailed(String)
     case invalidProviderConfiguration(String)
 
     var errorDescription: String? {
         switch self {
         case .notConfigured:
             return "OpenAI API Key fehlt. Bitte in den Einstellungen hinterlegen."
+        case .azureFoundryNotConfigured(let msg):
+            return "Azure Foundry ist nicht vollständig konfiguriert: \(msg)"
         case .networkError(let msg):
             return "Verbindungsproblem: \(msg)"
         case .apiError(let msg):
@@ -26,6 +30,8 @@ enum LLMError: LocalizedError {
             return "Ollama ist erreichbar, aber das Modell \"\(model)\" ist nicht installiert. Bitte mit `ollama pull \(model)` laden oder ein anderes Modell auswählen."
         case .ollamaRequestFailed(let msg):
             return "Ollama-Fehler: \(msg)"
+        case .azureFoundryRequestFailed(let msg):
+            return "Azure-Foundry-Fehler: \(msg)"
         case .invalidProviderConfiguration(let msg):
             return msg
         }
@@ -72,13 +78,19 @@ struct TextGenerationConfiguration {
     let ollamaBaseURL: String
     let ollamaModel: String
     let openAIModel: String?
+    let azureFoundryEndpoint: String
+    let azureFoundryDeploymentName: String
+    let azureFoundryAPIVersion: String
 
     static func openAI(model: String? = nil) -> TextGenerationConfiguration {
         TextGenerationConfiguration(
             providerKind: .openAI,
             ollamaBaseURL: AppSettings.defaultOllamaBaseURL,
             ollamaModel: AppSettings.defaultOllamaModel,
-            openAIModel: model
+            openAIModel: model,
+            azureFoundryEndpoint: "",
+            azureFoundryDeploymentName: "",
+            azureFoundryAPIVersion: AppSettings.defaultAzureFoundryAPIVersion
         )
     }
 
@@ -87,16 +99,22 @@ struct TextGenerationConfiguration {
             providerKind: .ollama,
             ollamaBaseURL: baseURL,
             ollamaModel: model,
-            openAIModel: nil
+            openAIModel: nil,
+            azureFoundryEndpoint: "",
+            azureFoundryDeploymentName: "",
+            azureFoundryAPIVersion: AppSettings.defaultAzureFoundryAPIVersion
         )
     }
 
-    static func azureFoundryClaude() -> TextGenerationConfiguration {
+    static func azureFoundryClaude(endpoint: String, deploymentName: String, apiVersion: String) -> TextGenerationConfiguration {
         TextGenerationConfiguration(
             providerKind: .azureFoundryClaude,
             ollamaBaseURL: AppSettings.defaultOllamaBaseURL,
             ollamaModel: AppSettings.defaultOllamaModel,
-            openAIModel: nil
+            openAIModel: nil,
+            azureFoundryEndpoint: endpoint,
+            azureFoundryDeploymentName: deploymentName,
+            azureFoundryAPIVersion: apiVersion
         )
     }
 }
@@ -118,7 +136,11 @@ enum TextProviderFactory {
                 model: configuration.ollamaModel
             )
         case .azureFoundryClaude:
-            throw LLMError.invalidProviderConfiguration("Azure Foundry Claude ist in dieser Preview noch nicht konfiguriert.")
+            return try AzureFoundryClaudeTextGenerationService(
+                endpointString: configuration.azureFoundryEndpoint,
+                deploymentName: configuration.azureFoundryDeploymentName,
+                apiVersion: configuration.azureFoundryAPIVersion
+            )
         }
     }
 }
@@ -214,6 +236,196 @@ private struct OpenAITextProvider: TextGenerating {
 
     private func openAIErrorMessage(from data: Data) -> String? {
         (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error?.message
+    }
+}
+
+enum AzureFoundryHealthStatus: Equatable {
+    case notConfigured(String)
+    case missingAPIKey
+    case reachable
+    case requestFailed(String)
+}
+
+private struct AzureFoundryClaudeTextGenerationService: TextGenerating {
+    private struct ChatRequest: Encodable {
+        struct Message: Encodable {
+            let role: String
+            let content: String
+        }
+
+        let model: String
+        let messages: [Message]
+        let temperature: Double
+    }
+
+    private struct ChatResponse: Decodable {
+        struct Choice: Decodable {
+            struct Message: Decodable {
+                let content: String?
+            }
+
+            let message: Message?
+        }
+
+        let choices: [Choice]?
+    }
+
+    private struct ErrorResponse: Decodable {
+        struct ErrorDetail: Decodable {
+            let code: String?
+            let message: String?
+        }
+
+        let error: ErrorDetail?
+    }
+
+    let kind: TextProviderKind = .azureFoundryClaude
+
+    private let endpoint: URL
+    private let deploymentName: String
+    private let apiVersion: String
+
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = false
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.timeoutIntervalForRequest = 45
+        configuration.timeoutIntervalForResource = 45
+        return URLSession(configuration: configuration)
+    }()
+
+    init(endpointString: String, deploymentName: String, apiVersion: String) throws {
+        let trimmedEndpoint = endpointString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDeployment = deploymentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAPIVersion = apiVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedEndpoint.isEmpty else {
+            throw LLMError.azureFoundryNotConfigured("Endpoint fehlt.")
+        }
+        guard let endpoint = URL(string: trimmedEndpoint),
+              let scheme = endpoint.scheme,
+              ["http", "https"].contains(scheme.lowercased()),
+              endpoint.host != nil else {
+            throw LLMError.azureFoundryNotConfigured("Endpoint ist ungültig.")
+        }
+        guard !trimmedDeployment.isEmpty else {
+            throw LLMError.azureFoundryNotConfigured("Deployment/Model-Name fehlt.")
+        }
+        guard !trimmedAPIVersion.isEmpty else {
+            throw LLMError.azureFoundryNotConfigured("API-Version fehlt.")
+        }
+
+        self.endpoint = endpoint
+        self.deploymentName = trimmedDeployment
+        self.apiVersion = trimmedAPIVersion
+    }
+
+    static func healthCheck(endpointString: String, deploymentName: String, apiVersion: String) async -> AzureFoundryHealthStatus {
+        do {
+            let provider = try AzureFoundryClaudeTextGenerationService(
+                endpointString: endpointString,
+                deploymentName: deploymentName,
+                apiVersion: apiVersion
+            )
+            return try await provider.healthStatus()
+        } catch let error as LLMError {
+            return .notConfigured(error.localizedDescription)
+        } catch {
+            return .notConfigured(error.localizedDescription)
+        }
+    }
+
+    func generateText(request: TextGenerationRequest) async throws -> TextGenerationResponse {
+        guard let apiKey = KeychainService.load(key: .azureFoundryAPIKey) else {
+            throw LLMError.azureFoundryNotConfigured("API Key fehlt.")
+        }
+
+        let payload = ChatRequest(
+            model: deploymentName,
+            messages: [
+                .init(role: "system", content: request.systemPrompt),
+                .init(role: "user", content: request.inputText),
+            ],
+            temperature: request.temperature
+        )
+
+        var urlRequest = URLRequest(url: chatCompletionsURL())
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue(apiKey, forHTTPHeaderField: "api-key")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.timeoutInterval = 45
+        urlRequest.httpBody = try JSONEncoder().encode(payload)
+
+        do {
+            let (data, response) = try await Self.session.data(for: urlRequest)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw LLMError.networkError("Keine gültige Antwort von Azure Foundry.")
+            }
+
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                throw LLMError.azureFoundryRequestFailed(azureErrorMessage(from: data) ?? "Status \(httpResponse.statusCode)")
+            }
+
+            let result = try JSONDecoder().decode(ChatResponse.self, from: data)
+            guard let content = result.choices?.first?.message?.content,
+                  !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw LLMError.noContent
+            }
+
+            return TextGenerationResponse(
+                provider: kind,
+                model: deploymentName,
+                text: content.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } catch let error as LLMError {
+            throw error
+        } catch {
+            throw LLMError.networkError(error.localizedDescription)
+        }
+    }
+
+    private func healthStatus() async throws -> AzureFoundryHealthStatus {
+        guard KeychainService.load(key: .azureFoundryAPIKey) != nil else {
+            return .missingAPIKey
+        }
+
+        do {
+            _ = try await generateText(
+                request: TextGenerationRequest(
+                    provider: kind,
+                    model: deploymentName,
+                    systemPrompt: "Antworte nur mit OK.",
+                    inputText: "Verbindungstest",
+                    temperature: 0
+                )
+            )
+            return .reachable
+        } catch let error as LLMError {
+            return .requestFailed(error.localizedDescription)
+        } catch {
+            return .requestFailed(error.localizedDescription)
+        }
+    }
+
+    private func azureErrorMessage(from data: Data) -> String? {
+        guard let error = try? JSONDecoder().decode(ErrorResponse.self, from: data).error else {
+            return nil
+        }
+        let parts = [error.code, error.message]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: ": ")
+    }
+
+    private func chatCompletionsURL() -> URL {
+        // Azure Foundry model-inference route.
+        // If a deployment uses the newer /openai/v1 route or another Foundry variant,
+        // adjust this single URL builder without touching workflow code.
+        endpoint
+            .appendingPathComponent("models")
+            .appendingPathComponent("chat")
+            .appendingPathComponent("completions")
+            .appending(queryItems: [URLQueryItem(name: "api-version", value: apiVersion)])
     }
 }
 
@@ -463,6 +675,14 @@ enum LLMService {
         await OllamaTextProvider.healthCheck(baseURLString: baseURL, model: model)
     }
 
+    static func azureFoundryHealthStatus(endpoint: String, deploymentName: String, apiVersion: String) async -> AzureFoundryHealthStatus {
+        await AzureFoundryClaudeTextGenerationService.healthCheck(
+            endpointString: endpoint,
+            deploymentName: deploymentName,
+            apiVersion: apiVersion
+        )
+    }
+
     private static func complete(
         text: String,
         systemPrompt: String,
@@ -483,7 +703,7 @@ enum LLMService {
                 requestedModel = model.rawValue
             }
         case .azureFoundryClaude:
-            requestedModel = model.rawValue
+            requestedModel = providerConfiguration.azureFoundryDeploymentName
         }
         let request = TextGenerationRequest(
             provider: provider.kind,
@@ -496,7 +716,7 @@ enum LLMService {
         return try await provider.generateText(request: request).text
     }
 
-    private static func buildEmojiSystemPrompt(density: EmojiTextSettings.EmojiDensity) -> String {
+    static func buildEmojiSystemPrompt(density: EmojiTextSettings.EmojiDensity) -> String {
         let densityInstruction: String
         switch density {
         case .wenig:
@@ -510,7 +730,7 @@ enum LLMService {
         return "Du erhaeltst ein gesprochenes Transkript. Gib den Text moeglichst originalgetreu zurueck, aber fuege passende Emojis ein. \(densityInstruction) Korrigiere offensichtliche Sprach- und Grammatikfehler. Behalte den Stil und die Bedeutung bei. Gib NUR den Text mit Emojis zurueck, keine Erklaerungen."
     }
 
-    private static func buildSystemPrompt(settings: TextImprovementSettings) -> String {
+    static func buildSystemPrompt(settings: TextImprovementSettings) -> String {
         if !settings.systemPrompt.isEmpty {
             var prompt = settings.systemPrompt
             if !settings.customTerms.isEmpty {

@@ -62,12 +62,15 @@ struct AccessSettingsView: View {
 
     private enum FieldFocus {
         case openAIAPIKey
+        case azureFoundryAPIKey
     }
 
     @State private var launchAtLoginService = LaunchAtLoginService()
     @State private var currentInstallLocation = BlitztextInstallLocationService.currentInstallLocation
     @State private var openAIAPIKey = ""
+    @State private var azureFoundryAPIKey = ""
     @State private var editingAPIKey = false
+    @State private var editingAzureAPIKey = false
     @State private var saved = false
     @State private var saveErrorText: String?
     @State private var installActionErrorText: String?
@@ -180,6 +183,53 @@ struct AccessSettingsView: View {
                             .font(.system(size: 11))
                     }
                 }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    SectionLabel(text: "Azure Foundry optional")
+                    Spacer()
+                    if appState.hasValue(for: .azureFoundryAPIKey) && !editingAzureAPIKey {
+                        Button("Aendern") { editingAzureAPIKey = true }
+                            .font(.system(size: 10, weight: .medium))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.blue)
+                    }
+                }
+
+                if appState.hasValue(for: .azureFoundryAPIKey) && !editingAzureAPIKey {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.green.opacity(0.8))
+                        Text(appState.apiKeyDisplayValue(for: .azureFoundryAPIKey))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                } else {
+                    HStack(spacing: 8) {
+                        SecureField("Azure API Key", text: $azureFoundryAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11.5))
+                            .focused($focusedField, equals: .azureFoundryAPIKey)
+
+                        Button("Einfuegen") {
+                            pasteAzureAPIKeyFromClipboard()
+                        }
+                        .buttonStyle(SubtleButtonStyle())
+                    }
+                }
+
+                Text("Nur nötig, wenn Textprovider auf Azure Foundry Claude steht. Dein Key bleibt lokal im macOS Keychain.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -382,11 +432,13 @@ struct AccessSettingsView: View {
             refreshInstallState()
             load()
             editingAPIKey = false
+            editingAzureAPIKey = false
         }
     }
 
     private func load() {
         openAIAPIKey = ""
+        azureFoundryAPIKey = ""
     }
 
     private func save() {
@@ -395,8 +447,11 @@ struct AccessSettingsView: View {
         cleanupErrorText = nil
         KeychainService.invalidateCache()
         let trimmedAPIKey = openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAzureAPIKey = azureFoundryAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldSaveOpenAIKey = editingAPIKey || !appState.hasValue(for: .openAIAPIKey)
+        let shouldSaveAzureKey = editingAzureAPIKey || !appState.hasValue(for: .azureFoundryAPIKey)
 
-        if editingAPIKey && !trimmedAPIKey.isEmpty {
+        if shouldSaveOpenAIKey && !trimmedAPIKey.isEmpty {
             do {
                 try KeychainService.save(key: .openAIAPIKey, value: trimmedAPIKey)
                 openAIAPIKey = ""
@@ -407,6 +462,19 @@ struct AccessSettingsView: View {
             }
         } else if editingAPIKey && trimmedAPIKey.isEmpty {
             editingAPIKey = false
+        }
+
+        if shouldSaveAzureKey && !trimmedAzureAPIKey.isEmpty {
+            do {
+                try KeychainService.save(key: .azureFoundryAPIKey, value: trimmedAzureAPIKey)
+                azureFoundryAPIKey = ""
+                editingAzureAPIKey = false
+            } catch {
+                saveErrorText = "Azure Foundry API Key konnte nicht gespeichert werden."
+                return
+            }
+        } else if editingAzureAPIKey && trimmedAzureAPIKey.isEmpty {
+            editingAzureAPIKey = false
         }
 
         KeychainService.invalidateCache()
@@ -431,6 +499,24 @@ struct AccessSettingsView: View {
         }
 
         openAIAPIKey = trimmedKey
+        NSPasteboard.general.clearContents()
+        saveErrorText = nil
+    }
+
+    private func pasteAzureAPIKeyFromClipboard() {
+        guard let rawText = NSPasteboard.general.string(forType: .string) else {
+            saveErrorText = "Zwischenablage enthält keinen Text."
+            return
+        }
+
+        let firstLine = rawText.components(separatedBy: .newlines).first ?? rawText
+        let trimmedKey = firstLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else {
+            saveErrorText = "Zwischenablage enthält keinen Azure Foundry API Key."
+            return
+        }
+
+        azureFoundryAPIKey = trimmedKey
         NSPasteboard.general.clearContents()
         saveErrorText = nil
     }
@@ -493,7 +579,9 @@ struct AccessSettingsView: View {
 
         if deleteLocalDataOnCleanup {
             openAIAPIKey = ""
+            azureFoundryAPIKey = ""
             editingAPIKey = true
+            editingAzureAPIKey = true
         }
 
         if report.failedItems.isEmpty {
@@ -528,6 +616,8 @@ struct CustomizeSettingsView: View {
     @State private var newTerm = ""
     @State private var ollamaTestStatusText: String?
     @State private var ollamaTestIsRunning = false
+    @State private var azureFoundryTestStatusText: String?
+    @State private var azureFoundryTestIsRunning = false
 
     private var installedLocalModels: [LocalTranscriptionModel] {
         LocalTranscriptionService.installedModels()
@@ -627,6 +717,61 @@ struct CustomizeSettingsView: View {
                             Text(ollamaTestStatusText)
                                 .font(.system(size: 10.5))
                                 .foregroundStyle(ollamaTestStatusText.hasPrefix("OK") ? .green : .orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            if appState.appSettings.textProvider == .azureFoundryClaude {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Azure Foundry Claude")
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Endpoint")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        TextField("https://<resource>.services.ai.azure.com", text: $appState.appSettings.azureFoundryEndpoint)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Deployment")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 76, alignment: .leading)
+                        TextField("claude-...", text: $appState.appSettings.azureFoundryDeploymentName)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("API-Version")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 76, alignment: .leading)
+                        TextField(AppSettings.defaultAzureFoundryAPIVersion, text: $appState.appSettings.azureFoundryAPIVersion)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+
+                    Text("Aktuell wird die Azure AI Foundry Model-Inference-Route /models/chat/completions verwendet.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Button(azureFoundryTestIsRunning ? "Teste ..." : "Verbindung testen") {
+                            testAzureFoundryConnection()
+                        }
+                        .buttonStyle(SubtleButtonStyle())
+                        .disabled(azureFoundryTestIsRunning)
+
+                        if let azureFoundryTestStatusText {
+                            Text(azureFoundryTestStatusText)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(azureFoundryTestStatusText.hasPrefix("OK") ? .green : .orange)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -913,6 +1058,35 @@ struct CustomizeSettingsView: View {
                     ollamaTestStatusText = "Modell fehlt: \(missingModel)"
                 case .requestFailed(let message):
                     ollamaTestStatusText = "Fehler: \(message)"
+                }
+            }
+        }
+    }
+
+    private func testAzureFoundryConnection() {
+        azureFoundryTestIsRunning = true
+        azureFoundryTestStatusText = nil
+
+        let endpoint = appState.appSettings.azureFoundryEndpoint
+        let deploymentName = appState.appSettings.azureFoundryDeploymentName
+        let apiVersion = appState.appSettings.azureFoundryAPIVersion
+        Task {
+            let status = await LLMService.azureFoundryHealthStatus(
+                endpoint: endpoint,
+                deploymentName: deploymentName,
+                apiVersion: apiVersion
+            )
+            await MainActor.run {
+                azureFoundryTestIsRunning = false
+                switch status {
+                case .reachable:
+                    azureFoundryTestStatusText = "OK: Azure Foundry ist bereit."
+                case .missingAPIKey:
+                    azureFoundryTestStatusText = "Azure API Key fehlt."
+                case .notConfigured(let message):
+                    azureFoundryTestStatusText = message
+                case .requestFailed(let message):
+                    azureFoundryTestStatusText = "Fehler: \(message)"
                 }
             }
         }
