@@ -25,38 +25,73 @@ enum RewriteModel: String {
     case rageMode = "gpt-4o"
 }
 
-private struct OpenAIChatRequest: Encodable {
-    struct Message: Encodable {
-        let role: String
-        let content: String
-    }
+enum TextProviderKind: String, Codable, CaseIterable {
+    case openAI = "openai"
+}
 
+struct TextGenerationRequest {
+    let provider: TextProviderKind
     let model: String
-    let messages: [Message]
+    let systemPrompt: String
+    let inputText: String
     let temperature: Double
 }
 
-private struct OpenAIChatResponse: Decodable {
-    struct Choice: Decodable {
-        struct Message: Decodable {
-            let content: String?
+struct TextGenerationResponse {
+    let provider: TextProviderKind
+    let model: String
+    let text: String
+}
+
+protocol TextGenerating: Sendable {
+    var kind: TextProviderKind { get }
+
+    func generateText(request: TextGenerationRequest) async throws -> TextGenerationResponse
+}
+
+enum TextProviderFactory {
+    static func makeProvider(kind: TextProviderKind) -> any TextGenerating {
+        switch kind {
+        case .openAI:
+            return OpenAITextProvider()
+        }
+    }
+}
+
+private struct OpenAITextProvider: TextGenerating {
+    private struct ChatRequest: Encodable {
+        struct Message: Encodable {
+            let role: String
+            let content: String
         }
 
-        let message: Message?
+        let model: String
+        let messages: [Message]
+        let temperature: Double
     }
 
-    let choices: [Choice]?
-}
+    private struct ChatResponse: Decodable {
+        struct Choice: Decodable {
+            struct Message: Decodable {
+                let content: String?
+            }
 
-private struct OpenAIErrorResponse: Decodable {
-    struct APIError: Decodable {
-        let message: String?
+            let message: Message?
+        }
+
+        let choices: [Choice]?
     }
 
-    let error: APIError?
-}
+    private struct ErrorResponse: Decodable {
+        struct APIError: Decodable {
+            let message: String?
+        }
 
-enum LLMService {
+        let error: APIError?
+    }
+
+    let kind: TextProviderKind = .openAI
+
     private static let chatCompletionsURL = URL(string: "https://api.openai.com/v1/chat/completions")!
 
     private static let session: URLSession = {
@@ -67,6 +102,59 @@ enum LLMService {
         configuration.timeoutIntervalForResource = 45
         return URLSession(configuration: configuration)
     }()
+
+    func generateText(request: TextGenerationRequest) async throws -> TextGenerationResponse {
+        guard let apiKey = KeychainService.load(key: .openAIAPIKey) else {
+            throw LLMError.notConfigured
+        }
+
+        let payload = ChatRequest(
+            model: request.model,
+            messages: [
+                .init(role: "system", content: request.systemPrompt),
+                .init(role: "user", content: request.inputText),
+            ],
+            temperature: request.temperature
+        )
+
+        var urlRequest = URLRequest(url: Self.chatCompletionsURL)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.timeoutInterval = 45
+        urlRequest.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, response) = try await Self.session.data(for: urlRequest)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw LLMError.networkError("Keine gültige Antwort")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw LLMError.apiError(openAIErrorMessage(from: data) ?? "Status \(httpResponse.statusCode)")
+        }
+
+        let result = try JSONDecoder().decode(ChatResponse.self, from: data)
+        guard let content = result.choices?.first?.message?.content,
+              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LLMError.noContent
+        }
+
+        return TextGenerationResponse(
+            provider: kind,
+            model: request.model,
+            text: content.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func openAIErrorMessage(from data: Data) -> String? {
+        (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error?.message
+    }
+}
+
+enum LLMService {
+    private static let providerKind: TextProviderKind = .openAI
+    private static let textProvider = TextProviderFactory.makeProvider(kind: providerKind)
 
     static func improve(
         text: String,
@@ -113,47 +201,15 @@ enum LLMService {
         model: RewriteModel,
         temperature: Double
     ) async throws -> String {
-        guard let apiKey = KeychainService.load(key: .openAIAPIKey) else {
-            throw LLMError.notConfigured
-        }
-
-        let payload = OpenAIChatRequest(
+        let request = TextGenerationRequest(
+            provider: providerKind,
             model: model.rawValue,
-            messages: [
-                .init(role: "system", content: systemPrompt),
-                .init(role: "user", content: text),
-            ],
+            systemPrompt: systemPrompt,
+            inputText: text,
             temperature: temperature
         )
 
-        var request = URLRequest(url: chatCompletionsURL)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 45
-        request.httpBody = try JSONEncoder().encode(payload)
-
-        let (data, response) = try await session.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw LLMError.networkError("Keine gültige Antwort")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw LLMError.apiError(openAIErrorMessage(from: data) ?? "Status \(httpResponse.statusCode)")
-        }
-
-        let result = try JSONDecoder().decode(OpenAIChatResponse.self, from: data)
-        guard let content = result.choices?.first?.message?.content,
-              !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw LLMError.noContent
-        }
-
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func openAIErrorMessage(from data: Data) -> String? {
-        (try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data))?.error?.message
+        return try await textProvider.generateText(request: request).text
     }
 
     private static func buildEmojiSystemPrompt(density: EmojiTextSettings.EmojiDensity) -> String {
