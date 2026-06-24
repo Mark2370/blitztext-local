@@ -113,7 +113,7 @@ final class AppState {
             return "Nur lokal. Kein Server."
         case .textImprover, .dampfAblassen, .emojiText:
             if appSettings.secureLocalModeEnabled {
-                return "Im lokalen Modus pausiert."
+                return "Lokal mit Ollama: \(appSettings.ollamaModel)."
             }
             return type.subtitle
         }
@@ -143,6 +143,20 @@ final class AppState {
         selectedLocalModelIsInstalled
             ? "\(LocalTranscriptionModel.displayName(for: selectedLocalModelName)) ist installiert"
             : "\(LocalTranscriptionModel.displayName(for: selectedLocalModelName)) installieren"
+    }
+
+    var textGenerationConfiguration: TextGenerationConfiguration {
+        appSettings.secureLocalModeEnabled
+            ? .ollama(baseURL: appSettings.ollamaBaseURL, model: appSettings.ollamaModel)
+            : .openAI()
+    }
+
+    var rewritePipelineConfiguration: RewritePipelineConfiguration {
+        RewritePipelineConfiguration(
+            transcriptionBackend: appSettings.secureLocalModeEnabled ? .local : .remote,
+            localTranscriptionModelName: selectedLocalModelName,
+            textGenerationConfiguration: textGenerationConfiguration
+        )
     }
 
     // MARK: - Workflow Management
@@ -188,7 +202,8 @@ final class AppState {
         case .textImprover:
             let workflow = TextImprovementWorkflow(
                 settings: textImprovementSettings,
-                language: transcriptionSettings.language
+                language: transcriptionSettings.language,
+                pipeline: rewritePipelineConfiguration
             )
             configureWorkflowHandlers(workflow)
             activeWorkflow = workflow
@@ -198,7 +213,8 @@ final class AppState {
             let workflow = DampfAblassenWorkflow(
                 settings: dampfAblassenSettings,
                 customTerms: textImprovementSettings.customTerms,
-                language: transcriptionSettings.language
+                language: transcriptionSettings.language,
+                pipeline: rewritePipelineConfiguration
             )
             configureWorkflowHandlers(workflow)
             activeWorkflow = workflow
@@ -208,7 +224,8 @@ final class AppState {
             let workflow = EmojiTextWorkflow(
                 settings: emojiTextSettings,
                 customTerms: textImprovementSettings.customTerms,
-                language: transcriptionSettings.language
+                language: transcriptionSettings.language,
+                pipeline: rewritePipelineConfiguration
             )
             configureWorkflowHandlers(workflow)
             activeWorkflow = workflow
@@ -227,7 +244,11 @@ final class AppState {
                 ? selectedLocalModelIsInstalled
                 : KeychainService.isConfigured
         case .textImprover, .dampfAblassen, .emojiText:
-            return !appSettings.secureLocalModeEnabled && KeychainService.isConfigured
+            if appSettings.secureLocalModeEnabled {
+                return selectedLocalModelIsInstalled
+                    && !appSettings.ollamaModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            return KeychainService.isConfigured
         }
     }
 

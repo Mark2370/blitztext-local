@@ -117,24 +117,33 @@ protocol Workflow: AnyObject, Observable {
 // MARK: - App Settings
 
 struct AppSettings: Codable {
+    static let defaultOllamaBaseURL = "http://localhost:11434"
+    static let defaultOllamaModel = "llama3.1"
+
     var hotkeyMode: HotkeyMode = .hold
     var hasSeenOnboarding: Bool = false
     var secureLocalModeEnabled: Bool = false
     var selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName
     var hasAutoSelectedFastLocalModel: Bool = false
+    var ollamaBaseURL: String = Self.defaultOllamaBaseURL
+    var ollamaModel: String = Self.defaultOllamaModel
 
     init(
         hotkeyMode: HotkeyMode = .hold,
         hasSeenOnboarding: Bool = false,
         secureLocalModeEnabled: Bool = false,
         selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName,
-        hasAutoSelectedFastLocalModel: Bool = false
+        hasAutoSelectedFastLocalModel: Bool = false,
+        ollamaBaseURL: String = Self.defaultOllamaBaseURL,
+        ollamaModel: String = Self.defaultOllamaModel
     ) {
         self.hotkeyMode = hotkeyMode
         self.hasSeenOnboarding = hasSeenOnboarding
         self.secureLocalModeEnabled = secureLocalModeEnabled
         self.selectedLocalTranscriptionModelName = selectedLocalTranscriptionModelName
         self.hasAutoSelectedFastLocalModel = hasAutoSelectedFastLocalModel
+        self.ollamaBaseURL = ollamaBaseURL
+        self.ollamaModel = ollamaModel
     }
 
     enum CodingKeys: String, CodingKey {
@@ -143,6 +152,8 @@ struct AppSettings: Codable {
         case secureLocalModeEnabled
         case selectedLocalTranscriptionModelName
         case hasAutoSelectedFastLocalModel
+        case ollamaBaseURL
+        case ollamaModel
     }
 
     init(from decoder: Decoder) throws {
@@ -158,12 +169,42 @@ struct AppSettings: Codable {
             Bool.self,
             forKey: .hasAutoSelectedFastLocalModel
         ) ?? false
+        ollamaBaseURL = try container.decodeIfPresent(
+            String.self,
+            forKey: .ollamaBaseURL
+        ) ?? Self.defaultOllamaBaseURL
+        ollamaModel = try container.decodeIfPresent(
+            String.self,
+            forKey: .ollamaModel
+        ) ?? Self.defaultOllamaModel
     }
 }
 
 enum TranscriptionBackend: String, Codable {
     case remote
     case local
+}
+
+struct RewritePipelineConfiguration {
+    let transcriptionBackend: TranscriptionBackend
+    let localTranscriptionModelName: String
+    let textGenerationConfiguration: TextGenerationConfiguration
+
+    var usesLocalTranscription: Bool {
+        transcriptionBackend == .local
+    }
+
+    var usesLocalTextGeneration: Bool {
+        textGenerationConfiguration.providerKind == .ollama
+    }
+
+    static func remoteOpenAI() -> RewritePipelineConfiguration {
+        RewritePipelineConfiguration(
+            transcriptionBackend: .remote,
+            localTranscriptionModelName: LocalTranscriptionService.recommendedFastModelName,
+            textGenerationConfiguration: .openAI()
+        )
+    }
 }
 
 // MARK: - Workflow Settings

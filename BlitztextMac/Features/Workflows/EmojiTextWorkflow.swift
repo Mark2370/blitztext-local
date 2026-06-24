@@ -16,12 +16,19 @@ final class EmojiTextWorkflow: Workflow {
     private let settings: EmojiTextSettings
     private let customTerms: [String]
     private let language: String
+    private let pipeline: RewritePipelineConfiguration
     private var processingTask: Task<Void, Never>?
 
-    init(settings: EmojiTextSettings, customTerms: [String] = [], language: String = "de") {
+    init(
+        settings: EmojiTextSettings,
+        customTerms: [String] = [],
+        language: String = "de",
+        pipeline: RewritePipelineConfiguration = .remoteOpenAI()
+    ) {
         self.settings = settings
         self.customTerms = customTerms
         self.language = language
+        self.pipeline = pipeline
     }
 
     // MARK: - Recording State
@@ -64,7 +71,7 @@ final class EmojiTextWorkflow: Workflow {
         phase = .idle
     }
 
-    // MARK: - Two-Phase Processing: Whisper -> Emoji
+    // MARK: - Two-Phase Processing: Transcription -> Text Generation
 
     private func processRecording() {
         guard let url = recorder.recordingURL else {
@@ -72,9 +79,10 @@ final class EmojiTextWorkflow: Workflow {
             return
         }
 
-        phase = .running("Wird transkribiert ...")
+        phase = .running(pipeline.usesLocalTranscription ? "Wird lokal transkribiert ..." : "Wird transkribiert ...")
         let recordingDuration = recorder.lastRecordingDuration
         let vocabularyHints = recordingDuration >= 0.9 ? customTerms : []
+        let requestLanguage = language
 
         processingTask = Task {
             defer {
@@ -82,12 +90,21 @@ final class EmojiTextWorkflow: Workflow {
             }
 
             do {
-                // Phase 1: Whisper transcription
-                let rawText = try await TranscriptionService.transcribe(
-                    audioURL: url,
-                    customTerms: vocabularyHints,
-                    language: language
-                )
+                let rawText: String
+                switch pipeline.transcriptionBackend {
+                case .remote:
+                    rawText = try await TranscriptionService.transcribe(
+                        audioURL: url,
+                        customTerms: vocabularyHints,
+                        language: requestLanguage
+                    )
+                case .local:
+                    rawText = try await LocalTranscriptionService.shared.transcribe(
+                        audioURL: url,
+                        language: requestLanguage,
+                        modelName: pipeline.localTranscriptionModelName
+                    )
+                }
                 let cleanedRawText = TranscriptionQualityService.cleanedTranscript(rawText)
                 guard !TranscriptionQualityService.isLikelyArtifact(cleanedRawText, recordingDuration: recordingDuration) else {
                     phase = .error("Keine Aufnahme erkannt.")
@@ -97,11 +114,12 @@ final class EmojiTextWorkflow: Workflow {
                 if Task.isCancelled { return }
 
                 // Phase 2: Add emojis
-                phase = .running("Emojis werden eingef\u{00FC}gt ...")
+                phase = .running(pipeline.usesLocalTextGeneration ? "Emojis werden lokal eingef\u{00FC}gt ..." : "Emojis werden eingef\u{00FC}gt ...")
 
                 let result = try await LLMService.addEmojis(
                     text: cleanedRawText,
-                    settings: settings
+                    settings: settings,
+                    providerConfiguration: pipeline.textGenerationConfiguration
                 )
                 let cleanedResult = TranscriptionQualityService.cleanedTranscript(result)
                 guard cleanedResult != "KEINE_AUFNAHME_ERKANNT" else {

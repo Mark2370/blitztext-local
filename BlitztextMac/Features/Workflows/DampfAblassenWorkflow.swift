@@ -16,12 +16,19 @@ final class DampfAblassenWorkflow: Workflow {
     private let settings: DampfAblassenSettings
     private let customTerms: [String]
     private let language: String
+    private let pipeline: RewritePipelineConfiguration
     private var processingTask: Task<Void, Never>?
 
-    init(settings: DampfAblassenSettings, customTerms: [String] = [], language: String = "de") {
+    init(
+        settings: DampfAblassenSettings,
+        customTerms: [String] = [],
+        language: String = "de",
+        pipeline: RewritePipelineConfiguration = .remoteOpenAI()
+    ) {
         self.settings = settings
         self.customTerms = customTerms
         self.language = language
+        self.pipeline = pipeline
     }
 
     // MARK: - Recording State
@@ -64,7 +71,7 @@ final class DampfAblassenWorkflow: Workflow {
         phase = .idle
     }
 
-    // MARK: - Two-Phase Processing: Whisper -> GPT Rage Mode
+    // MARK: - Two-Phase Processing: Transcription -> Text Generation
 
     private func processRecording() {
         guard let url = recorder.recordingURL else {
@@ -72,9 +79,10 @@ final class DampfAblassenWorkflow: Workflow {
             return
         }
 
-        phase = .running("Wird transkribiert ...")
+        phase = .running(pipeline.usesLocalTranscription ? "Wird lokal transkribiert ..." : "Wird transkribiert ...")
         let recordingDuration = recorder.lastRecordingDuration
         let vocabularyHints = recordingDuration >= 0.9 ? customTerms : []
+        let requestLanguage = language
 
         processingTask = Task {
             defer {
@@ -82,12 +90,21 @@ final class DampfAblassenWorkflow: Workflow {
             }
 
             do {
-                // Phase 1: Whisper transcription
-                let rawText = try await TranscriptionService.transcribe(
-                    audioURL: url,
-                    customTerms: vocabularyHints,
-                    language: language
-                )
+                let rawText: String
+                switch pipeline.transcriptionBackend {
+                case .remote:
+                    rawText = try await TranscriptionService.transcribe(
+                        audioURL: url,
+                        customTerms: vocabularyHints,
+                        language: requestLanguage
+                    )
+                case .local:
+                    rawText = try await LocalTranscriptionService.shared.transcribe(
+                        audioURL: url,
+                        language: requestLanguage,
+                        modelName: pipeline.localTranscriptionModelName
+                    )
+                }
                 let cleanedRawText = TranscriptionQualityService.cleanedTranscript(rawText)
                 guard !TranscriptionQualityService.isLikelyArtifact(cleanedRawText, recordingDuration: recordingDuration) else {
                     phase = .error("Keine Aufnahme erkannt.")
@@ -96,12 +113,13 @@ final class DampfAblassenWorkflow: Workflow {
 
                 if Task.isCancelled { return }
 
-                // Phase 2: GPT dampf ablassen
-                phase = .running("Wird umformuliert ...")
+                // Phase 2: Dampf ablassen
+                phase = .running(pipeline.usesLocalTextGeneration ? "Wird lokal umformuliert ..." : "Wird umformuliert ...")
 
                 let answer = try await LLMService.dampfAblassen(
                     text: cleanedRawText,
-                    systemPrompt: settings.systemPrompt
+                    systemPrompt: settings.systemPrompt,
+                    providerConfiguration: pipeline.textGenerationConfiguration
                 )
                 let cleanedAnswer = TranscriptionQualityService.cleanedTranscript(answer)
                 guard cleanedAnswer != "KEINE_AUFNAHME_ERKANNT" else {
