@@ -116,51 +116,91 @@ protocol Workflow: AnyObject, Observable {
 
 // MARK: - App Settings
 
+enum SpeechProviderKind: String, Codable, CaseIterable, Identifiable {
+    case localWhisperKit
+    case openAI
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .localWhisperKit: return "Lokal: WhisperKit"
+        case .openAI: return "OpenAI Whisper"
+        }
+    }
+}
+
 struct AppSettings: Codable {
     static let defaultOllamaBaseURL = "http://localhost:11434"
     static let defaultOllamaModel = "llama3.1"
+    static let defaultOpenAISpeechModel = "whisper-1"
 
     var hotkeyMode: HotkeyMode = .hold
     var hasSeenOnboarding: Bool = false
-    var secureLocalModeEnabled: Bool = false
+    var secureLocalModeEnabled: Bool = true
+    var speechProvider: SpeechProviderKind = .localWhisperKit
+    var textProvider: TextProviderKind = .ollama
     var selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName
     var hasAutoSelectedFastLocalModel: Bool = false
     var ollamaBaseURL: String = Self.defaultOllamaBaseURL
     var ollamaModel: String = Self.defaultOllamaModel
+    var openAISpeechModel: String = Self.defaultOpenAISpeechModel
+    var openAITextModel: String = ""
 
     init(
         hotkeyMode: HotkeyMode = .hold,
         hasSeenOnboarding: Bool = false,
-        secureLocalModeEnabled: Bool = false,
+        secureLocalModeEnabled: Bool = true,
+        speechProvider: SpeechProviderKind = .localWhisperKit,
+        textProvider: TextProviderKind = .ollama,
         selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName,
         hasAutoSelectedFastLocalModel: Bool = false,
         ollamaBaseURL: String = Self.defaultOllamaBaseURL,
-        ollamaModel: String = Self.defaultOllamaModel
+        ollamaModel: String = Self.defaultOllamaModel,
+        openAISpeechModel: String = Self.defaultOpenAISpeechModel,
+        openAITextModel: String = ""
     ) {
         self.hotkeyMode = hotkeyMode
         self.hasSeenOnboarding = hasSeenOnboarding
         self.secureLocalModeEnabled = secureLocalModeEnabled
+        self.speechProvider = speechProvider
+        self.textProvider = textProvider
         self.selectedLocalTranscriptionModelName = selectedLocalTranscriptionModelName
         self.hasAutoSelectedFastLocalModel = hasAutoSelectedFastLocalModel
         self.ollamaBaseURL = ollamaBaseURL
         self.ollamaModel = ollamaModel
+        self.openAISpeechModel = openAISpeechModel
+        self.openAITextModel = openAITextModel
     }
 
     enum CodingKeys: String, CodingKey {
         case hotkeyMode
         case hasSeenOnboarding
         case secureLocalModeEnabled
+        case speechProvider
+        case textProvider
         case selectedLocalTranscriptionModelName
         case hasAutoSelectedFastLocalModel
         case ollamaBaseURL
         case ollamaModel
+        case openAISpeechModel
+        case openAITextModel
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         hotkeyMode = try container.decodeIfPresent(HotkeyMode.self, forKey: .hotkeyMode) ?? .hold
         hasSeenOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasSeenOnboarding) ?? false
-        secureLocalModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .secureLocalModeEnabled) ?? false
+        let storedLocalMode = try container.decodeIfPresent(Bool.self, forKey: .secureLocalModeEnabled)
+        secureLocalModeEnabled = storedLocalMode ?? true
+        speechProvider = try container.decodeIfPresent(
+            SpeechProviderKind.self,
+            forKey: .speechProvider
+        ) ?? (secureLocalModeEnabled ? .localWhisperKit : .openAI)
+        textProvider = try container.decodeIfPresent(
+            TextProviderKind.self,
+            forKey: .textProvider
+        ) ?? (secureLocalModeEnabled ? .ollama : .openAI)
         selectedLocalTranscriptionModelName = try container.decodeIfPresent(
             String.self,
             forKey: .selectedLocalTranscriptionModelName
@@ -177,6 +217,14 @@ struct AppSettings: Codable {
             String.self,
             forKey: .ollamaModel
         ) ?? Self.defaultOllamaModel
+        openAISpeechModel = try container.decodeIfPresent(
+            String.self,
+            forKey: .openAISpeechModel
+        ) ?? Self.defaultOpenAISpeechModel
+        openAITextModel = try container.decodeIfPresent(
+            String.self,
+            forKey: .openAITextModel
+        ) ?? ""
     }
 }
 
@@ -188,6 +236,7 @@ enum TranscriptionBackend: String, Codable {
 struct RewritePipelineConfiguration {
     let transcriptionBackend: TranscriptionBackend
     let localTranscriptionModelName: String
+    let remoteTranscriptionModelName: String
     let textGenerationConfiguration: TextGenerationConfiguration
 
     var usesLocalTranscription: Bool {
@@ -202,6 +251,7 @@ struct RewritePipelineConfiguration {
         RewritePipelineConfiguration(
             transcriptionBackend: .remote,
             localTranscriptionModelName: LocalTranscriptionService.recommendedFastModelName,
+            remoteTranscriptionModelName: AppSettings.defaultOpenAISpeechModel,
             textGenerationConfiguration: .openAI()
         )
     }

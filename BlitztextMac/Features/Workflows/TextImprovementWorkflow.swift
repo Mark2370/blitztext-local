@@ -93,7 +93,8 @@ final class TextImprovementWorkflow: Workflow {
                     rawText = try await TranscriptionService.transcribe(
                         audioURL: url,
                         customTerms: vocabularyHints,
-                        language: requestLanguage
+                        language: requestLanguage,
+                        model: pipeline.remoteTranscriptionModelName
                     )
                 case .local:
                     rawText = try await LocalTranscriptionService.shared.transcribe(

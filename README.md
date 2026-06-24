@@ -6,7 +6,7 @@ It is intentionally small and unfinished. The goal is to make a real workflow vi
 
 This is a learning and experimentation project, not a polished product.
 
-> Preview status: bring your own OpenAI API key, no hosted backend, no warranty, no support guarantee.
+> Preview status: local-first, optional bring-your-own OpenAI API key, no hosted backend, no warranty, no support guarantee.
 
 ## What It Does
 
@@ -18,10 +18,11 @@ This is a learning and experimentation project, not a polished product.
 ## Important Preview Notes
 
 - macOS only.
-- Bring your own OpenAI API key.
+- Local-first workflows use WhisperKit/CoreML for speech and Ollama for text generation.
+- Bring your own OpenAI API key only if you choose OpenAI as speech or text provider.
 - No hosted Blitztext backend is included or provided.
-- In online mode, audio and text are sent directly from the app to the OpenAI API.
-- Optional local transcription via WhisperKit/CoreML if you install a compatible model locally.
+- In OpenAI mode, audio and/or text are sent directly from the app to the OpenAI API.
+- Local transcription via WhisperKit/CoreML requires a compatible model installed locally.
 - `./build.sh` creates a locally ad-hoc-signed development app. No notarized release binary is provided.
 - Not production ready.
 - No warranty and no support guarantee.
@@ -48,10 +49,11 @@ The intent is not to ship a one-click finished app. The intent is to make a real
 - macOS 14 or newer
 - Xcode 16 or newer (Swift 5.10), with Command Line Tools installed and selected for `xcodebuild`
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the Xcode project
-- For online transcription and rewriting: an OpenAI API key with access to:
+- For local text generation: Ollama running on `http://localhost:11434` with a model such as `llama3.1`.
+- Optional for OpenAI transcription and rewriting: an OpenAI API key with access to:
   - `whisper-1` for transcription
   - `gpt-4o-mini` and optionally `gpt-4o` for rewriting
-- For local-only transcription: a WhisperKit CoreML model in:
+- For local transcription: a WhisperKit CoreML model in:
   `~/Library/Application Support/Blitztext/models/whisperkit/`
 
 The build also pulls one Swift Package dependency automatically:
@@ -80,9 +82,9 @@ For a local install into `/Applications`:
 
 The generated `.app` is ad-hoc signed for local development only. Do not treat it as a trusted redistributable binary. A public binary release would need Developer ID signing and notarization.
 
-On first launch, either paste your own OpenAI API key for online workflows or install a WhisperKit CoreML model for local transcription. Rewriting workflows still require OpenAI.
+On first launch, install a WhisperKit CoreML model for local transcription and run Ollama for local rewriting. You can optionally paste an OpenAI API key and select OpenAI as speech or text provider.
 
-For fully local transcription, install a WhisperKit CoreML model and enable **Sicherer Lokaler Modus** in the app.
+For fully local workflows, install a WhisperKit CoreML model and configure Ollama in the app settings.
 
 For a slower, more explicit walkthrough, see [docs/setup.md](docs/setup.md).
 
@@ -102,9 +104,10 @@ Full Disk Access is not required. If auto-paste does not work even though transc
 The preview has no custom backend.
 
 ```text
-Online transcription: Your Mac -> OpenAI Audio Transcriptions API
-Text rewriting:       Your Mac -> OpenAI Chat Completions API
 Local transcription:  Your Mac -> WhisperKit/CoreML on device
+Local rewriting:      Your Mac -> Ollama on localhost
+OpenAI transcription: Your Mac -> OpenAI Audio Transcriptions API
+OpenAI rewriting:     Your Mac -> OpenAI Chat Completions API
 ```
 
 The app stores your OpenAI API key in the user's macOS Keychain.
@@ -117,7 +120,7 @@ Read [docs/privacy.md](docs/privacy.md) before using the preview with sensitive 
 BlitztextMac/
   App/          App lifecycle and paste handling
   Features/     Workflows, menu bar UI, settings
-  Services/     Recording, OpenAI calls, hotkeys, local storage
+  Services/     Recording, provider calls, hotkeys, local storage
   Views/        Shared SwiftUI views
 build.sh        Local build script
 docs/           Setup, privacy, roadmap, preflight, landing page notes
@@ -125,7 +128,7 @@ docs/           Setup, privacy, roadmap, preflight, landing page notes
 
 ## Local Models
 
-Local transcription is available as an experimental WhisperKit/CoreML path. The app does not bundle a model; choose one in the app, click install, and then switch on **Sicherer Lokaler Modus** from the menu bar or settings.
+Local transcription is available through WhisperKit/CoreML. The app does not bundle a model; choose one in the app and click install. Local text generation uses Ollama when selected as text provider.
 
 See [docs/local-models.md](docs/local-models.md).
 

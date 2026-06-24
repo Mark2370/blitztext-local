@@ -60,7 +60,10 @@ final class AppState {
 
     // Computed
     var isConfigured: Bool {
-        KeychainService.isConfigured || !LocalTranscriptionService.installedModels().isEmpty
+        isWorkflowAvailable(.transcription)
+            || isWorkflowAvailable(.textImprover)
+            || isWorkflowAvailable(.dampfAblassen)
+            || isWorkflowAvailable(.emojiText)
     }
     var shouldShowOnboarding: Bool {
         !isConfigured && !appSettings.hasSeenOnboarding
@@ -102,20 +105,34 @@ final class AppState {
     func workflowSubtitle(for type: WorkflowType) -> String {
         switch type {
         case .transcription:
-            if appSettings.secureLocalModeEnabled {
-                let modelName = selectedLocalModelName
-                return LocalTranscriptionService.isModelInstalled(modelName)
-                    ? "Lokal: \(LocalTranscriptionModel.displayName(for: modelName))."
+            switch appSettings.speechProvider {
+            case .localWhisperKit:
+                return selectedLocalModelIsInstalled
+                    ? "Lokal: \(selectedLocalModelDisplayName)."
                     : "Lokales WhisperKit-Modell fehlt."
+            case .openAI:
+                return KeychainService.isConfigured
+                    ? "Remote: OpenAI Whisper."
+                    : "OpenAI Key fehlt."
             }
-            return "Online: Whisper über OpenAI."
         case .localTranscription:
             return "Nur lokal. Kein Server."
         case .textImprover, .dampfAblassen, .emojiText:
-            if appSettings.secureLocalModeEnabled {
-                return "Lokal mit Ollama: \(appSettings.ollamaModel)."
+            guard speechProviderIsAvailable else {
+                return speechProviderUnavailableText
             }
-            return type.subtitle
+            switch appSettings.textProvider {
+            case .ollama:
+                return appSettings.ollamaModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Ollama-Modell fehlt."
+                    : "Text lokal mit Ollama: \(appSettings.ollamaModel)."
+            case .openAI:
+                return KeychainService.isConfigured
+                    ? "Text remote mit OpenAI."
+                    : "OpenAI Key fehlt."
+            case .azureFoundryClaude:
+                return "Azure Foundry Claude ist noch nicht konfiguriert."
+            }
         }
     }
 
@@ -146,17 +163,102 @@ final class AppState {
     }
 
     var textGenerationConfiguration: TextGenerationConfiguration {
-        appSettings.secureLocalModeEnabled
-            ? .ollama(baseURL: appSettings.ollamaBaseURL, model: appSettings.ollamaModel)
-            : .openAI()
+        switch appSettings.textProvider {
+        case .ollama:
+            return .ollama(baseURL: appSettings.ollamaBaseURL, model: appSettings.ollamaModel)
+        case .openAI:
+            return .openAI(model: appSettings.openAITextModel)
+        case .azureFoundryClaude:
+            return .azureFoundryClaude()
+        }
     }
 
     var rewritePipelineConfiguration: RewritePipelineConfiguration {
         RewritePipelineConfiguration(
-            transcriptionBackend: appSettings.secureLocalModeEnabled ? .local : .remote,
+            transcriptionBackend: appSettings.speechProvider == .localWhisperKit ? .local : .remote,
             localTranscriptionModelName: selectedLocalModelName,
+            remoteTranscriptionModelName: appSettings.openAISpeechModel,
             textGenerationConfiguration: textGenerationConfiguration
         )
+    }
+
+    var providerSummaryTitle: String {
+        switch (appSettings.speechProvider, appSettings.textProvider) {
+        case (.localWhisperKit, .ollama):
+            return "Lokal: WhisperKit + Ollama"
+        case (.localWhisperKit, _):
+            return "Hybrid: WhisperKit + \(appSettings.textProvider.displayName)"
+        case (.openAI, .ollama):
+            return "Hybrid: OpenAI Whisper + Ollama"
+        case (.openAI, _):
+            return "Remote: OpenAI Whisper + \(appSettings.textProvider.displayName)"
+        }
+    }
+
+    var providerSummaryDetail: String {
+        "\(speechProviderDetail) · \(textProviderDetail)"
+    }
+
+    var speechProviderIsAvailable: Bool {
+        switch appSettings.speechProvider {
+        case .localWhisperKit:
+            return selectedLocalModelIsInstalled
+        case .openAI:
+            return KeychainService.isConfigured
+        }
+    }
+
+    var textProviderIsAvailable: Bool {
+        switch appSettings.textProvider {
+        case .ollama:
+            return !appSettings.ollamaModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .openAI:
+            return KeychainService.isConfigured
+        case .azureFoundryClaude:
+            return false
+        }
+    }
+
+    var speechProviderDetail: String {
+        switch appSettings.speechProvider {
+        case .localWhisperKit:
+            return selectedLocalModelIsInstalled
+                ? "Speech lokal mit \(selectedLocalModelDisplayName)"
+                : "\(selectedLocalModelDisplayName) fehlt"
+        case .openAI:
+            return KeychainService.isConfigured ? "Speech via OpenAI \(resolvedOpenAISpeechModel)" : "OpenAI Key fehlt"
+        }
+    }
+
+    var textProviderDetail: String {
+        switch appSettings.textProvider {
+        case .ollama:
+            let model = appSettings.ollamaModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            return model.isEmpty ? "Ollama Modell fehlt" : "Text via Ollama \(model)"
+        case .openAI:
+            return KeychainService.isConfigured ? "Text via OpenAI \(resolvedOpenAITextModel)" : "OpenAI Key fehlt"
+        case .azureFoundryClaude:
+            return "Azure Foundry Claude noch nicht konfiguriert"
+        }
+    }
+
+    private var speechProviderUnavailableText: String {
+        switch appSettings.speechProvider {
+        case .localWhisperKit:
+            return "Lokales WhisperKit-Modell fehlt."
+        case .openAI:
+            return "OpenAI Key für Transkription fehlt."
+        }
+    }
+
+    var resolvedOpenAISpeechModel: String {
+        let model = appSettings.openAISpeechModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return model.isEmpty ? AppSettings.defaultOpenAISpeechModel : model
+    }
+
+    var resolvedOpenAITextModel: String {
+        let model = appSettings.openAITextModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return model.isEmpty ? "\(RewriteModel.fastEdit.rawValue)/\(RewriteModel.rageMode.rawValue)" : model
     }
 
     // MARK: - Workflow Management
@@ -180,8 +282,9 @@ final class AppState {
             let workflow = TranscriptionWorkflow(
                 customTerms: textImprovementSettings.customTerms,
                 language: transcriptionSettings.language,
-                backend: appSettings.secureLocalModeEnabled ? .local : .remote,
-                localModelName: selectedLocalModelName
+                backend: appSettings.speechProvider == .localWhisperKit ? .local : .remote,
+                localModelName: selectedLocalModelName,
+                remoteModelName: resolvedOpenAISpeechModel
             )
             configureWorkflowHandlers(workflow)
             activeWorkflow = workflow
@@ -193,7 +296,8 @@ final class AppState {
                 customTerms: textImprovementSettings.customTerms,
                 language: transcriptionSettings.language,
                 backend: .local,
-                localModelName: selectedLocalModelName
+                localModelName: selectedLocalModelName,
+                remoteModelName: resolvedOpenAISpeechModel
             )
             configureWorkflowHandlers(workflow)
             activeWorkflow = workflow
@@ -240,15 +344,9 @@ final class AppState {
         case .localTranscription:
             return selectedLocalModelIsInstalled
         case .transcription:
-            return appSettings.secureLocalModeEnabled
-                ? selectedLocalModelIsInstalled
-                : KeychainService.isConfigured
+            return speechProviderIsAvailable
         case .textImprover, .dampfAblassen, .emojiText:
-            if appSettings.secureLocalModeEnabled {
-                return selectedLocalModelIsInstalled
-                    && !appSettings.ollamaModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            return KeychainService.isConfigured
+            return speechProviderIsAvailable && textProviderIsAvailable
         }
     }
 
@@ -268,10 +366,22 @@ final class AppState {
     }
 
     func enableSecureLocalMode() {
+        setLocalFirstProviders()
+    }
+
+    func setLocalFirstProviders() {
+        appSettings.speechProvider = .localWhisperKit
+        appSettings.textProvider = .ollama
         appSettings.secureLocalModeEnabled = true
         if !selectedLocalModelIsInstalled {
             installSelectedLocalModel()
         }
+    }
+
+    func setRemoteOpenAIProviders() {
+        appSettings.speechProvider = .openAI
+        appSettings.textProvider = .openAI
+        appSettings.secureLocalModeEnabled = false
     }
 
     func installSelectedLocalModel() {
@@ -296,7 +406,7 @@ final class AppState {
                 }
 
                 appSettings.selectedLocalTranscriptionModelName = installedURL.lastPathComponent
-                appSettings.secureLocalModeEnabled = true
+                appSettings.speechProvider = .localWhisperKit
                 localModelDownloadProgress = nil
                 localModelDownloadStatusText = "\(LocalTranscriptionModel.displayName(for: modelName)) ist installiert."
                 localModelDownloadErrorText = nil
@@ -457,7 +567,7 @@ final class AppState {
     }
 
     private func prewarmLocalTranscriptionIfNeeded() {
-        guard appSettings.secureLocalModeEnabled,
+        guard appSettings.speechProvider == .localWhisperKit,
               LocalTranscriptionService.isModelInstalled(resolvedLocalModelName) else {
             return
         }

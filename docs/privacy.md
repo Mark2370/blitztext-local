@@ -2,22 +2,23 @@
 
 Blitztext macOS Preview does not include a hosted backend.
 
-When you use the online workflows, your Mac sends data directly to OpenAI:
+Blitztext is local-first when configured with WhisperKit/CoreML for speech and Ollama for text generation. In that setup, audio transcription and rewriting happen on your Mac or on your local Ollama endpoint.
+
+When you explicitly select OpenAI as speech provider or text provider, your Mac sends the relevant data directly to OpenAI:
 
 - audio recordings for transcription
 - transcribed or typed text for rewriting
 - custom terms and prompt context if you configured them
 
-When **Sicherer Lokaler Modus** is enabled and a WhisperKit/CoreML model is installed, transcription runs on your Mac and does not send audio to OpenAI. Rewriting workflows still require OpenAI and are paused while secure local mode is active.
-
-You are responsible for your OpenAI account, API usage, costs, and data handling.
+You are responsible for your OpenAI account, API usage, costs, and data handling when you choose OpenAI.
 
 ## Local Data
 
 The app stores:
 
-- your OpenAI API key in the user's macOS Keychain
+- your OpenAI API key in the user's macOS Keychain, only if you entered one
 - workflow settings in local app support storage
+- provider selections and non-secret model names in local app support storage
 - optional WhisperKit/CoreML model folders in local app support storage
 - temporary audio files while a transcription is being processed; the app attempts to delete each recording when the workflow ends or is cancelled
 
@@ -29,8 +30,8 @@ Settings such as custom prompts, custom terms, and context are stored in local a
 
 ## Offline Scope
 
-Only transcription can run locally. Any workflow that rewrites, improves, or transforms text still uses OpenAI.
+With a local WhisperKit/CoreML model and a reachable Ollama model, transcription and rewriting workflows can run without an OpenAI key. OpenAI remains an optional remote provider.
 
 ## Sensitive Content
 
-Do not use this preview with confidential, regulated, or highly sensitive content unless you have reviewed the code, your OpenAI settings, and your legal/privacy requirements.
+Do not use this preview with confidential, regulated, or highly sensitive content unless you have reviewed the code, your provider settings, and your legal/privacy requirements.

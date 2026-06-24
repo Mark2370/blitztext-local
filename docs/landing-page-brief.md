@@ -28,7 +28,7 @@ Secondary CTA:
 
 Small line:
 
-> Bring your own OpenAI API key. Optional local transcription. No hosted Blitztext backend.
+> Local-first with WhisperKit and Ollama. Optional OpenAI. No hosted Blitztext backend.
 
 ## Sections
 
@@ -40,7 +40,8 @@ Small line:
 
 2. How it works
    - Build the app locally
-   - Paste your own OpenAI API key
+   - Use local WhisperKit and Ollama by default
+   - Optionally select OpenAI as a remote provider
    - Press a hotkey and speak
    - Get text back on the clipboard
 
@@ -49,33 +50,32 @@ Small line:
    - MIT License
    - experimental
    - no warranty
-   - optional local transcription with user-installed WhisperKit models
+   - local transcription with user-installed WhisperKit models
+   - local rewriting with Ollama
 
 4. Privacy, plainly
-   - online workflows send audio and text to OpenAI
-   - secure local mode keeps transcription on device
+   - local workflows keep speech and rewriting on local providers
+   - OpenAI workflows send selected audio and/or text to OpenAI
    - no public Blitztext backend
-   - rewriting still uses OpenAI
    - do your own review before sensitive use
 
 5. Roadmap
    - easier setup
    - signed releases
-   - local transcription experiments
+   - local transcription and rewriting experiments
    - clearer setup and security docs
    - community issues
 
 ## Do Not Promise
 
-- offline use
+- guaranteed offline use
 - production readiness
 - hosted service
-- free usage without API costs
+- free usage without optional API costs
 - no data leaves the device
 - guaranteed support
 - other platforms
 - bundled local models
-- local rewriting
 
 ## Visual Direction
 

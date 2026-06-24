@@ -175,7 +175,7 @@ echo "Naechste Schritte:"
 echo "1. App starten"
 echo "2. Mikrofon erlauben"
 echo "3. Fuer direktes Einfuegen zusaetzlich Bedienungshilfen erlauben"
-echo "4. In Blitztext deinen eigenen OpenAI API Key eintragen"
+echo "4. Lokal mit WhisperKit/Ollama starten oder optional OpenAI konfigurieren"
 echo "5. Loslegen und bei Bedarf im Code weiterbauen"
 echo ""
 

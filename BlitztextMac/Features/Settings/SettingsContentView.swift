@@ -115,7 +115,7 @@ struct AccessSettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    SectionLabel(text: "OpenAI API Key")
+                    SectionLabel(text: "OpenAI optional")
                     Spacer()
                     if appState.hasValue(for: .openAIAPIKey) && !editingAPIKey {
                         Button("Aendern") { editingAPIKey = true }
@@ -154,10 +154,32 @@ struct AccessSettingsView: View {
                     }
                 }
 
-                Text("Dein Key bleibt lokal in dieser App. Audio und Text werden direkt an die OpenAI API gesendet.")
+                Text("Nur nötig, wenn Speech oder Textprovider auf OpenAI stehen. Dein Key bleibt lokal im macOS Keychain.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text("Speech")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .leading)
+                        TextField(AppSettings.defaultOpenAISpeechModel, text: $appState.appSettings.openAISpeechModel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Text")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .leading)
+                        TextField("leer = Workflow-Defaults", text: $appState.appSettings.openAITextModel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -359,10 +381,7 @@ struct AccessSettingsView: View {
             launchAtLoginService.refresh()
             refreshInstallState()
             load()
-            if !appState.hasValue(for: .openAIAPIKey) {
-                editingAPIKey = true
-                focusedField = .openAIAPIKey
-            }
+            editingAPIKey = false
         }
     }
 
@@ -377,11 +396,7 @@ struct AccessSettingsView: View {
         KeychainService.invalidateCache()
         let trimmedAPIKey = openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if editingAPIKey || !appState.hasValue(for: .openAIAPIKey) {
-            guard !trimmedAPIKey.isEmpty else {
-                saveErrorText = "Bitte trage deinen OpenAI API Key ein."
-                return
-            }
+        if editingAPIKey && !trimmedAPIKey.isEmpty {
             do {
                 try KeychainService.save(key: .openAIAPIKey, value: trimmedAPIKey)
                 openAIAPIKey = ""
@@ -390,13 +405,11 @@ struct AccessSettingsView: View {
                 saveErrorText = "OpenAI API Key konnte nicht gespeichert werden."
                 return
             }
+        } else if editingAPIKey && trimmedAPIKey.isEmpty {
+            editingAPIKey = false
         }
 
         KeychainService.invalidateCache()
-        if !appState.hasValue(for: .openAIAPIKey) {
-            saveErrorText = "OpenAI API Key wurde nicht persistent gespeichert. Bitte App neu starten und erneut versuchen."
-            return
-        }
 
         withAnimation(.easeInOut(duration: 0.2)) { saved = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
@@ -513,6 +526,8 @@ struct AccessSettingsView: View {
 struct CustomizeSettingsView: View {
     @Bindable var appState: AppState
     @State private var newTerm = ""
+    @State private var ollamaTestStatusText: String?
+    @State private var ollamaTestIsRunning = false
 
     private var installedLocalModels: [LocalTranscriptionModel] {
         LocalTranscriptionService.installedModels()
@@ -525,71 +540,157 @@ struct CustomizeSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
 
-            // MARK: Lokaler Modus
+            // MARK: Provider
             VStack(alignment: .leading, spacing: 10) {
-                SectionLabel(text: "Sicherer Lokaler Modus")
+                SectionLabel(text: "Provider")
 
-                Toggle("Sicherer Lokaler Modus", isOn: $appState.appSettings.secureLocalModeEnabled)
-                    .toggleStyle(.switch)
-                    .onChange(of: appState.appSettings.secureLocalModeEnabled) { _, newValue in
-                        if newValue && !appState.selectedLocalModelIsInstalled {
-                            appState.installSelectedLocalModel()
-                        }
-                    }
-
-                HStack(spacing: 6) {
-                    Image(systemName: appState.selectedLocalModelIsInstalled ? "checkmark.circle.fill" : "arrow.down.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(appState.selectedLocalModelIsInstalled ? .green : .blue)
-                    Text(appState.selectedLocalModelIsInstalled ? "\(installedLocalModels.count) lokales WhisperKit-Modell installiert." : "Das ausgewählte Modell wird beim Installieren lokal gespeichert.")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-
-                HStack(spacing: 8) {
-                    Text("Lokales Modell")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Speech-to-Text")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
 
                     Picker("", selection: Binding(
-                        get: { appState.selectedLocalModelName },
-                        set: { appState.appSettings.selectedLocalTranscriptionModelName = $0 }
+                        get: { appState.appSettings.speechProvider },
+                        set: { provider in
+                            appState.appSettings.speechProvider = provider
+                            appState.appSettings.secureLocalModeEnabled = provider == .localWhisperKit && appState.appSettings.textProvider == .ollama
+                            if provider == .localWhisperKit && !appState.selectedLocalModelIsInstalled {
+                                appState.installSelectedLocalModel()
+                            }
+                        }
                     )) {
-                        ForEach(localModelOptions) { model in
-                            Text("\(model.displayName) · \(model.installStateLabel)").tag(model.id)
+                        ForEach(SpeechProviderKind.allCases) { provider in
+                            Text(provider.displayName).tag(provider)
                         }
                     }
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .disabled(appState.isDownloadingLocalModel)
+                    .pickerStyle(.segmented)
                 }
 
-                if let progress = appState.localModelDownloadProgress {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: progress)
-                        Text(appState.localModelDownloadStatusText ?? "Modell wird geladen...")
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Textgenerierung")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+
+                    Picker("", selection: Binding(
+                        get: { appState.appSettings.textProvider },
+                        set: { provider in
+                            appState.appSettings.textProvider = provider
+                            appState.appSettings.secureLocalModeEnabled = appState.appSettings.speechProvider == .localWhisperKit && provider == .ollama
+                        }
+                    )) {
+                        ForEach(TextProviderKind.allCases) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .controlSize(.small)
+                }
+
+                Text(appState.providerSummaryDetail)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if appState.appSettings.textProvider == .ollama {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Ollama")
+
+                    HStack(spacing: 8) {
+                        Text("URL")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .leading)
+                        TextField(AppSettings.defaultOllamaBaseURL, text: $appState.appSettings.ollamaBaseURL)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+
+                    HStack(spacing: 8) {
+                        Text("Modell")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .leading)
+                        TextField(AppSettings.defaultOllamaModel, text: $appState.appSettings.ollamaModel)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 11))
+                    }
+
+                    HStack(spacing: 8) {
+                        Button(ollamaTestIsRunning ? "Teste ..." : "Verbindung testen") {
+                            testOllamaConnection()
+                        }
+                        .buttonStyle(SubtleButtonStyle())
+                        .disabled(ollamaTestIsRunning)
+
+                        if let ollamaTestStatusText {
+                            Text(ollamaTestStatusText)
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(ollamaTestStatusText.hasPrefix("OK") ? .green : .orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+
+            if appState.appSettings.speechProvider == .localWhisperKit {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionLabel(text: "Lokale Transkription")
+
+                    HStack(spacing: 6) {
+                        Image(systemName: appState.selectedLocalModelIsInstalled ? "checkmark.circle.fill" : "arrow.down.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(appState.selectedLocalModelIsInstalled ? .green : .blue)
+                        Text(appState.selectedLocalModelIsInstalled ? "\(installedLocalModels.count) lokales WhisperKit-Modell installiert." : "Das ausgewählte Modell wird beim Installieren lokal gespeichert.")
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
+                        Spacer()
                     }
-                } else {
-                    HStack(spacing: 10) {
-                        Button(appState.localModelDownloadButtonTitle) {
-                            appState.installSelectedLocalModel()
+
+                    HStack(spacing: 8) {
+                        Text("Modell")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+
+                        Picker("", selection: Binding(
+                            get: { appState.selectedLocalModelName },
+                            set: { appState.appSettings.selectedLocalTranscriptionModelName = $0 }
+                        )) {
+                            ForEach(localModelOptions) { model in
+                                Text("\(model.displayName) · \(model.installStateLabel)").tag(model.id)
+                            }
                         }
+                        .labelsHidden()
                         .controlSize(.small)
-                        .disabled(appState.selectedLocalModelIsInstalled)
-
-                        Link("Modellseite", destination: LocalTranscriptionService.modelPageURL(for: appState.selectedLocalModelName))
-                            .font(.system(size: 10.5, weight: .medium))
+                        .disabled(appState.isDownloadingLocalModel)
                     }
-                }
 
-                if let errorText = appState.localModelDownloadErrorText {
-                    Text(errorText)
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let progress = appState.localModelDownloadProgress {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ProgressView(value: progress)
+                            Text(appState.localModelDownloadStatusText ?? "Modell wird geladen...")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            Button(appState.localModelDownloadButtonTitle) {
+                                appState.installSelectedLocalModel()
+                            }
+                            .controlSize(.small)
+                            .disabled(appState.selectedLocalModelIsInstalled)
+
+                            Link("Modellseite", destination: LocalTranscriptionService.modelPageURL(for: appState.selectedLocalModelName))
+                                .font(.system(size: 10.5, weight: .medium))
+                        }
+                    }
+
+                    if let errorText = appState.localModelDownloadErrorText {
+                        Text(errorText)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
 
@@ -791,6 +892,30 @@ struct CustomizeSettingsView: View {
             appState.textImprovementSettings.customTerms.append(trimmed)
         }
         newTerm = ""
+    }
+
+    private func testOllamaConnection() {
+        ollamaTestIsRunning = true
+        ollamaTestStatusText = nil
+
+        let baseURL = appState.appSettings.ollamaBaseURL
+        let model = appState.appSettings.ollamaModel
+        Task {
+            let status = await LLMService.ollamaHealthStatus(baseURL: baseURL, model: model)
+            await MainActor.run {
+                ollamaTestIsRunning = false
+                switch status {
+                case .reachable:
+                    ollamaTestStatusText = "OK: Ollama ist bereit."
+                case .notRunning:
+                    ollamaTestStatusText = "Ollama läuft nicht."
+                case .modelMissing(let missingModel):
+                    ollamaTestStatusText = "Modell fehlt: \(missingModel)"
+                case .requestFailed(let message):
+                    ollamaTestStatusText = "Fehler: \(message)"
+                }
+            }
+        }
     }
 }
 

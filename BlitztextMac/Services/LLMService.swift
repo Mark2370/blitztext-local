@@ -37,9 +37,20 @@ enum RewriteModel: String {
     case rageMode = "gpt-4o"
 }
 
-enum TextProviderKind: String, Codable, CaseIterable {
+enum TextProviderKind: String, Codable, CaseIterable, Identifiable {
     case openAI = "openai"
     case ollama
+    case azureFoundryClaude
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .openAI: return "OpenAI"
+        case .ollama: return "Lokal: Ollama"
+        case .azureFoundryClaude: return "Azure Foundry Claude"
+        }
+    }
 }
 
 struct TextGenerationRequest {
@@ -60,12 +71,14 @@ struct TextGenerationConfiguration {
     let providerKind: TextProviderKind
     let ollamaBaseURL: String
     let ollamaModel: String
+    let openAIModel: String?
 
-    static func openAI() -> TextGenerationConfiguration {
+    static func openAI(model: String? = nil) -> TextGenerationConfiguration {
         TextGenerationConfiguration(
             providerKind: .openAI,
             ollamaBaseURL: AppSettings.defaultOllamaBaseURL,
-            ollamaModel: AppSettings.defaultOllamaModel
+            ollamaModel: AppSettings.defaultOllamaModel,
+            openAIModel: model
         )
     }
 
@@ -73,7 +86,17 @@ struct TextGenerationConfiguration {
         TextGenerationConfiguration(
             providerKind: .ollama,
             ollamaBaseURL: baseURL,
-            ollamaModel: model
+            ollamaModel: model,
+            openAIModel: nil
+        )
+    }
+
+    static func azureFoundryClaude() -> TextGenerationConfiguration {
+        TextGenerationConfiguration(
+            providerKind: .azureFoundryClaude,
+            ollamaBaseURL: AppSettings.defaultOllamaBaseURL,
+            ollamaModel: AppSettings.defaultOllamaModel,
+            openAIModel: nil
         )
     }
 }
@@ -94,6 +117,8 @@ enum TextProviderFactory {
                 baseURLString: configuration.ollamaBaseURL,
                 model: configuration.ollamaModel
             )
+        case .azureFoundryClaude:
+            throw LLMError.invalidProviderConfiguration("Azure Foundry Claude ist in dieser Preview noch nicht konfiguriert.")
         }
     }
 }
@@ -446,9 +471,23 @@ enum LLMService {
         providerConfiguration: TextGenerationConfiguration
     ) async throws -> String {
         let provider = try TextProviderFactory.makeProvider(configuration: providerConfiguration)
+        let requestedModel: String
+        switch provider.kind {
+        case .ollama:
+            requestedModel = providerConfiguration.ollamaModel
+        case .openAI:
+            if let openAIModel = providerConfiguration.openAIModel?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !openAIModel.isEmpty {
+                requestedModel = openAIModel
+            } else {
+                requestedModel = model.rawValue
+            }
+        case .azureFoundryClaude:
+            requestedModel = model.rawValue
+        }
         let request = TextGenerationRequest(
             provider: provider.kind,
-            model: provider.kind == .ollama ? providerConfiguration.ollamaModel : model.rawValue,
+            model: requestedModel,
             systemPrompt: systemPrompt,
             inputText: text,
             temperature: temperature

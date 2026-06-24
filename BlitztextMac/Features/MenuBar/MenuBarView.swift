@@ -121,16 +121,17 @@ struct MenuBarView: View {
     private var transcriptionModePanel: some View {
         let modelOptions = LocalTranscriptionService.modelOptions()
         let selectedModelInstalled = appState.selectedLocalModelIsInstalled
+        let localFirst = appState.appSettings.speechProvider == .localWhisperKit && appState.appSettings.textProvider == .ollama
 
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
-                Image(systemName: appState.appSettings.secureLocalModeEnabled ? "lock.shield.fill" : "network")
+                Image(systemName: localFirst ? "lock.shield.fill" : "network")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(appState.appSettings.secureLocalModeEnabled ? .green : .blue)
+                    .foregroundStyle(localFirst ? .green : .blue)
                     .frame(width: 22, height: 22)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(appState.appSettings.secureLocalModeEnabled ? "Sicherer lokaler Modus" : "Online Whisper")
+                    Text(appState.providerSummaryTitle)
                         .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.primary)
 
@@ -144,12 +145,12 @@ struct MenuBarView: View {
                 Spacer(minLength: 4)
 
                 Toggle("", isOn: Binding(
-                    get: { appState.appSettings.secureLocalModeEnabled },
+                    get: { localFirst },
                     set: { newValue in
                         if newValue {
-                            appState.enableSecureLocalMode()
+                            appState.setLocalFirstProviders()
                         } else {
-                            appState.appSettings.secureLocalModeEnabled = false
+                            appState.setRemoteOpenAIProviders()
                         }
                     }
                 ))
@@ -159,7 +160,7 @@ struct MenuBarView: View {
                 .disabled(appState.isDownloadingLocalModel)
             }
 
-            if appState.appSettings.secureLocalModeEnabled {
+            if appState.appSettings.speechProvider == .localWhisperKit {
                 HStack(spacing: 8) {
                     Text("Modell")
                         .font(.system(size: 10.5, weight: .medium))
@@ -213,17 +214,19 @@ struct MenuBarView: View {
     }
 
     private func modePanelSubtitle(selectedModelInstalled: Bool) -> String {
-        if appState.appSettings.secureLocalModeEnabled {
+        if appState.isDownloadingLocalModel {
+            return appState.localModelDownloadStatusText ?? "Lokales Modell wird geladen."
+        }
+        if appState.appSettings.speechProvider == .localWhisperKit {
             if appState.isDownloadingLocalModel {
                 return appState.localModelDownloadStatusText ?? "Lokales Modell wird geladen."
             }
-            if selectedModelInstalled {
-                return "Lokal mit \(appState.selectedLocalModelDisplayName)."
+            if !selectedModelInstalled {
+                return "\(appState.selectedLocalModelDisplayName) ist noch nicht installiert."
             }
-            return "\(appState.selectedLocalModelDisplayName) ist noch nicht installiert."
         }
 
-        return "Blitztext nutzt gerade die OpenAI-Transkription."
+        return appState.providerSummaryDetail
     }
 
     private var accessibilityHintBanner: some View {
@@ -351,7 +354,7 @@ struct MenuBarView: View {
                         Text("Einmal einrichten, dann direkt loslegen.")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("Eigenen OpenAI API Key eintragen. Danach sprechen und einfügen.")
+                        Text("Lokal mit WhisperKit und Ollama starten. OpenAI bleibt optional.")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -363,7 +366,7 @@ struct MenuBarView: View {
                         onboardingInstallCard
                     }
 
-                    onboardingStep(number: "1", title: "OpenAI Key speichern", detail: "Öffne die Einstellungen und trage deinen eigenen OpenAI API Key ein.")
+                    onboardingStep(number: "1", title: "Provider wählen", detail: "Lokal: WhisperKit plus Ollama. Optional kannst du OpenAI als Remote-Provider eintragen.")
                     onboardingStep(number: "2", title: "Berechtigungen erlauben", detail: "Mikrofon und Bedienungshilfen für das Einfügen freigeben.")
                     onboardingStep(number: "3", title: "Workflow wählen", detail: "Blitztext oder einen der Verbesserer-Workflows direkt aus der Menüleiste starten.")
                 }

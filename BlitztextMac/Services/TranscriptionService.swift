@@ -29,7 +29,6 @@ private struct TranscriptionOpenAIErrorResponse: Decodable {
 }
 
 enum TranscriptionService {
-    private static let remoteModel = "whisper-1"
     private static let transcriptionsURL = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
 
     private static let session: URLSession = {
@@ -44,7 +43,8 @@ enum TranscriptionService {
     static func transcribe(
         audioURL: URL,
         customTerms: [String] = [],
-        language: String? = nil
+        language: String? = nil,
+        model: String = AppSettings.defaultOpenAISpeechModel
     ) async throws -> String {
         guard let apiKey = KeychainService.load(key: .openAIAPIKey) else {
             throw TranscriptionError.notConfigured
@@ -75,7 +75,7 @@ enum TranscriptionService {
 
             body.append("--\(boundary)\r\n")
             body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n")
-            body.append(remoteModel)
+            body.append(model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? AppSettings.defaultOpenAISpeechModel : model)
             body.append("\r\n")
 
             body.append("--\(boundary)\r\n")

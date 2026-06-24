@@ -8,8 +8,9 @@ This guide is for people who want to build and inspect the preview themselves.
 - Full Xcode, with Command Line Tools installed
 - XcodeGen
 - Homebrew, if you want to install XcodeGen with `brew install xcodegen`
-- Optional for online workflows: an OpenAI API key
-- Optional for secure local transcription: a local WhisperKit/CoreML model
+- For local speech: a WhisperKit/CoreML model
+- For local rewriting: Ollama running on `http://localhost:11434`
+- Optional for remote OpenAI workflows: an OpenAI API key
 
 Install XcodeGen manually if needed:
 
@@ -31,9 +32,26 @@ To launch after building:
 ./build.sh --run
 ```
 
-## 3. Configure OpenAI For Online Workflows
+## 3. Configure Local Providers
 
-Open the app settings and paste your own OpenAI API key if you want online transcription or rewriting workflows.
+The default setup is local-first:
+
+- choose or install a WhisperKit/CoreML model in the app for speech-to-text
+- run Ollama locally and select an installed model for text rewriting
+
+Example Ollama preparation:
+
+```bash
+brew install ollama
+ollama serve
+ollama pull llama3.1
+```
+
+Ollama listens on `http://localhost:11434` by default. You can test the connection from the app settings.
+
+## 4. Optional OpenAI Provider
+
+Open the app settings and paste your own OpenAI API key only if you want OpenAI transcription or OpenAI rewriting. Then select OpenAI as speech provider, text provider, or both.
 
 The preview currently uses:
 
@@ -45,11 +63,11 @@ You are responsible for API access, billing, and data handling in your own OpenA
 
 Never commit your API key into this repository, issues, logs, or screenshots.
 
-You can skip this step if you only want to test local transcription with a local WhisperKit model.
+You can skip this step for fully local WhisperKit + Ollama workflows.
 
-## 4. Optional Local Transcription
+## 5. Local Speech Model
 
-To use secure local transcription, choose a compatible WhisperKit CoreML model in the app and click **Installieren**. Blitztext stores models in:
+To use local transcription, choose a compatible WhisperKit CoreML model in the app and click **Installieren**. Blitztext stores models in:
 
 ```text
 ~/Library/Application Support/Blitztext/models/whisperkit/
@@ -59,7 +77,7 @@ Recommended first model: `openai_whisper-small_216MB`.
 
 See [local-models.md](local-models.md) for the exact command, model links, and expected folder layout.
 
-## 5. macOS Permissions
+## 6. macOS Permissions
 
 The app needs Microphone permission to record audio.
 
@@ -71,10 +89,10 @@ Blitztext does not need Full Disk Access. Auto-paste uses the Accessibility perm
 
 - If `xcodebuild` reports that the active developer directory is only Command Line Tools, run `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer`.
 - If the build cannot find XcodeGen, install it explicitly with `brew install xcodegen`.
-- If online transcription fails immediately, check whether the API key is present and valid.
-- If secure local mode is disabled, check whether a WhisperKit model is installed in the expected folder.
+- If local transcription is unavailable, check whether a WhisperKit model is installed in the expected folder.
+- If local rewriting fails, check whether Ollama is running and the selected model is installed.
 - If transcription works but paste does not, this is not an OpenAI billing issue. Check **Privacy & Security -> Accessibility**, restart Blitztext after changing the permission, and make sure the cursor is focused in a text field before starting the workflow.
 - If macOS shows multiple Blitztext entries under Accessibility, remove or disable stale entries, run the app from the final location (`/Applications` if you used `./build.sh --install`), then grant the permission again.
 - If the target app blocks synthetic paste or the target app was not detected, the result still stays on the clipboard so you can press Cmd+V manually.
 - If audio is missing, check Microphone permission and macOS input settings.
-- If you see OpenAI errors, verify model access and account billing.
+- If you see OpenAI errors while OpenAI is selected, verify the API key, model access, and account billing.
