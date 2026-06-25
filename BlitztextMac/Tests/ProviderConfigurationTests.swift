@@ -18,6 +18,62 @@ final class ProviderConfigurationTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Gib NUR den verbesserten Text"))
     }
 
+    func testDefaultTextCorrectionPromptMatchesPreMigrationPrompt() {
+        let settings = TextImprovementSettings(
+            systemPrompt: "",
+            customTerms: [],
+            context: "",
+            tone: .neutral
+        )
+
+        let prompt = LLMService.buildSystemPrompt(settings: settings)
+
+        XCTAssertEqual(
+            prompt,
+            """
+            Du bist ein Lektor und Schreibassistent. Verbessere den folgenden Text:
+            - Korrigiere Rechtschreibung und Grammatik
+            - Verbessere die Formulierung und den Lesefluss
+            - Behalte die urspruengliche Bedeutung bei
+            - Gib NUR den verbesserten Text zurueck, keine Erklaerungen
+            - Verwende einen neutralen, klaren Ton
+            """
+        )
+    }
+
+    func testTextCorrectionSystemPromptIsUsedForEveryTextProvider() {
+        let settings = TextImprovementSettings(
+            systemPrompt: "",
+            customTerms: ["Blackboat"],
+            context: "Interne Notiz",
+            tone: .casual
+        )
+        let systemPrompt = LLMService.buildSystemPrompt(settings: settings)
+        let providerConfigurations: [TextGenerationConfiguration] = [
+            .openAI(model: "gpt-4o-mini"),
+            .ollama(baseURL: "http://localhost:11434", model: "llama3.1"),
+            .azureFoundryClaude(
+                endpoint: "https://example.services.ai.azure.com",
+                deploymentName: "claude-sonnet",
+                apiVersion: "2024-05-01-preview"
+            ),
+        ]
+
+        for configuration in providerConfigurations {
+            let request = LLMService.buildTextGenerationRequest(
+                text: "Das ist der zu korrigierende Text.",
+                systemPrompt: systemPrompt,
+                model: .fastEdit,
+                temperature: 0.3,
+                providerConfiguration: configuration
+            )
+
+            XCTAssertEqual(request.systemPrompt, systemPrompt)
+            XCTAssertEqual(request.provider, configuration.providerKind)
+            XCTAssertTrue(request.inputText.contains("Das ist der zu korrigierende Text."))
+        }
+    }
+
     func testCustomPromptKeepsTermsWithoutAddingDefaultInstructions() {
         let settings = TextImprovementSettings(
             systemPrompt: "Schreibe knapp.",
@@ -39,6 +95,16 @@ final class ProviderConfigurationTests: XCTestCase {
 
         XCTAssertTrue(prompt.contains("maximal 1-2 pro Absatz"))
         XCTAssertTrue(prompt.contains("Gib NUR den Text mit Emojis"))
+    }
+
+    func testRewriteUserPromptMarksTranscriptAsTextNotChat() {
+        let prompt = LLMService.buildRewriteUserPrompt(text: "Kannst du mir kurz helfen?")
+
+        XCTAssertTrue(prompt.contains("kein Chat und keine Frage"))
+        XCTAssertTrue(prompt.contains("wende ausschließlich die Systemanweisung darauf an"))
+        XCTAssertTrue(prompt.contains("<text>"))
+        XCTAssertTrue(prompt.contains("Kannst du mir kurz helfen?"))
+        XCTAssertTrue(prompt.contains("</text>"))
     }
 
     func testSettingsDecodeOldRemoteOpenAIShape() throws {

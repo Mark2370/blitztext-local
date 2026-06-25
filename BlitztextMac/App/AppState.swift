@@ -478,10 +478,12 @@ final class AppState {
             return
         }
 
-        attemptPasteTrusted(
-            target: target,
-            attemptsRemaining: Self.pasteRetryInitialAttempts
-        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            self?.attemptPasteTrusted(
+                target: target,
+                attemptsRemaining: Self.pasteRetryInitialAttempts
+            )
+        }
     }
 
     private func writeSensitiveTextToPasteboard(_ text: String) {
@@ -713,7 +715,7 @@ final class AppState {
                 return
             }
 
-            target.application.activate(options: [])
+            target.application.activate(options: [.activateAllWindows])
         } else {
             return
         }
