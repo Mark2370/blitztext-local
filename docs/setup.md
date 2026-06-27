@@ -66,7 +66,7 @@ You are responsible for API access, billing, and data handling in your own OpenA
 
 Never commit your API key into this repository, issues, logs, or screenshots.
 
-For Azure Foundry Claude, select Azure Foundry Claude as text provider and configure Endpoint, Deployment/Model name, API version, and API key. The API key is stored in the macOS Keychain; the endpoint and model settings are stored as non-secret app settings.
+For Azure Foundry Claude, select Azure Foundry Claude as text provider and configure the resource endpoint (`https://<resource>.services.ai.azure.com`), deployment name, Anthropic API version (`2023-06-01`), and deployment API key. Blitztext calls `/anthropic/v1/messages` and accepts either the resource endpoint or the full Messages API URL. The API key is stored in the macOS Keychain; the endpoint and model settings are stored as non-secret app settings.
 
 You can skip remote providers for fully local WhisperKit + Ollama workflows.
 
@@ -102,4 +102,4 @@ Blitztext does not need Full Disk Access. Auto-paste uses the Accessibility perm
 - If the target app blocks synthetic paste or the target app was not detected, the result still stays on the clipboard so you can press Cmd+V manually.
 - If audio is missing, check Microphone permission and macOS input settings.
 - If you see OpenAI errors while OpenAI is selected, verify the API key, model access, and account billing.
-- If you see Azure Foundry errors while Azure Foundry Claude is selected, verify the endpoint, deployment/model name, API version, API key, and account access.
+- If Azure Foundry returns 401, verify that the deployment API key belongs to the same resource as the endpoint. Blitztext sends it as `x-api-key` to `/anthropic/v1/messages`; Claude Mythos deployments require Microsoft Entra ID and cannot use this API-key configuration.

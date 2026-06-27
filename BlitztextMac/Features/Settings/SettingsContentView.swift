@@ -756,7 +756,7 @@ struct CustomizeSettingsView: View {
                             .font(.system(size: 11))
                     }
 
-                    Text("Aktuell wird die Azure AI Foundry Model-Inference-Route /models/chat/completions verwendet.")
+                    Text("Verwendet die Claude Messages API unter /anthropic/v1/messages.")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

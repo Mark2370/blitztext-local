@@ -134,7 +134,8 @@ struct AppSettings: Codable {
     static let defaultOllamaBaseURL = "http://localhost:11434"
     static let defaultOllamaModel = "llama3.1"
     static let defaultOpenAISpeechModel = "whisper-1"
-    static let defaultAzureFoundryAPIVersion = "2024-05-01-preview"
+    static let defaultAzureFoundryAPIVersion = "2023-06-01"
+    private static let legacyAzureFoundryAPIVersion = "2024-05-01-preview"
 
     var hotkeyMode: HotkeyMode = .hold
     var hasSeenOnboarding: Bool = false
@@ -246,10 +247,13 @@ struct AppSettings: Codable {
             String.self,
             forKey: .azureFoundryDeploymentName
         ) ?? ""
-        azureFoundryAPIVersion = try container.decodeIfPresent(
+        let storedAzureFoundryAPIVersion = try container.decodeIfPresent(
             String.self,
             forKey: .azureFoundryAPIVersion
         ) ?? Self.defaultAzureFoundryAPIVersion
+        azureFoundryAPIVersion = storedAzureFoundryAPIVersion == Self.legacyAzureFoundryAPIVersion
+            ? Self.defaultAzureFoundryAPIVersion
+            : storedAzureFoundryAPIVersion
     }
 }
 

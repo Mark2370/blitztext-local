@@ -129,6 +129,13 @@ final class ProviderConfigurationTests: XCTestCase {
         XCTAssertEqual(settings.ollamaModel, AppSettings.defaultOllamaModel)
     }
 
+    func testSettingsMigrateLegacyAzureFoundryAPIVersion() throws {
+        let json = #"{"azureFoundryAPIVersion":"2024-05-01-preview"}"#
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+
+        XCTAssertEqual(settings.azureFoundryAPIVersion, "2023-06-01")
+    }
+
     func testTextGenerationConfigurationsKeepProviderSpecificSettings() {
         let openAI = TextGenerationConfiguration.openAI(model: "gpt-4o-mini")
         XCTAssertEqual(openAI.providerKind, .openAI)
@@ -142,12 +149,12 @@ final class ProviderConfigurationTests: XCTestCase {
         let azure = TextGenerationConfiguration.azureFoundryClaude(
             endpoint: "https://example.services.ai.azure.com",
             deploymentName: "claude-sonnet",
-            apiVersion: "2024-05-01-preview"
+            apiVersion: "2023-06-01"
         )
         XCTAssertEqual(azure.providerKind, .azureFoundryClaude)
         XCTAssertEqual(azure.azureFoundryEndpoint, "https://example.services.ai.azure.com")
         XCTAssertEqual(azure.azureFoundryDeploymentName, "claude-sonnet")
-        XCTAssertEqual(azure.azureFoundryAPIVersion, "2024-05-01-preview")
+        XCTAssertEqual(azure.azureFoundryAPIVersion, "2023-06-01")
     }
 
     func testErrorMappingIsProviderSpecificAndGerman() {
